@@ -17,6 +17,13 @@ Xtracto is a lightweight web development framework designed to simplify the proc
 
 > **It is recommended that you use python 3.9 (as of 3rd january 2024) for best compatibility**
 
+## Installation
+
+```cmd
+pip install xtracto
+```
+
+
 ### Usage
 
 #### 1. Parser Class

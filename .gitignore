@@ -1,2 +1,5 @@
 */private/*
 .idea/
+build/
+dist/
+xtracto.egg-info/
