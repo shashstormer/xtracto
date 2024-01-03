@@ -1,5 +1,5 @@
 from setuptools import setup, find_packages
-with open("./xtracto/readme.md", "r") as fh:
+with open("readme.md", "r") as fh:
     long_description = fh.read()
 
 setup(
