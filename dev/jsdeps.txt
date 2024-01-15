@@ -1,0 +1,5 @@
+npm install -g stylelint
+# npm install -g csslint
+npm install -g eslint
+npm i -g stylelint-config-recommended
+npm i -g stylelint-config-recommended-scss

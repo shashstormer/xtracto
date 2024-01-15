@@ -1,0 +1,10 @@
+html
+    head
+        title
+            testing import feature
+        script
+            [[./test/validjs.js]]
+    body
+        this page is used to test import feature
+        div
+            [[./test/component.pypx]]

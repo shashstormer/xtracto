@@ -1,0 +1,5 @@
+html
+            [{./test/validjs.js}]
+            [{./test/valid.css}]
+            script
+                ;;src=[{./test/validjs2.js}];;

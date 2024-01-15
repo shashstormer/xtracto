@@ -140,18 +140,21 @@ class Parser:
                 _content_after_footer = ''.join([parse_bs4tag_to_plain(tag) for tag in _body_element.contents[
                                                                                        _body_element.contents.index(
                                                                                            _body_element.footer) + 1:]]) if _footer_exists else ''
+
+                preheader = _content_before_header.strip().replace("{", "#{#").replace("\n", '#&N#')
+                children = _content_after_header_before_footer
+                postfooter = _content_after_footer.strip().replace("{", "#{#").replace("\n", '#&N#')
+                children = children.strip(postfooter)
+
+            else:
+                children = self.html_content
+
             if _head:
                 headcontent = str("".join(
                     parse_bs4tag_to_plain(i) for i in
                     _head.contents) if _head and _head.contents else "").strip().replace(
                     "{", "#{#").replace("\n", '#&N#')
-            if _body_element:
-                preheader = _content_before_header.strip().replace("{", "#{#").replace("\n", '#&N#')
-                children = _content_after_header_before_footer
-                postfooter = _content_after_footer.strip().replace("{", "#{#").replace("\n", '#&N#')
-                children = children.strip(postfooter)
-            else:
-                children = self.html_content
+
             for element in ["preheader", "postfooter"]:
                 try:
                     if not locals()[element]:
@@ -235,7 +238,7 @@ class Parser:
                 current_indent, current_list = stack[-1]
                 while len(stack) > indent_level:
                     stack.pop()
-                if line.startswith(";"):
+                if line.startswith(";;"):
                     new_list = line[1:-1]
                     line = "?:attribute?:"
                 elif line.startswith("?:"):
@@ -401,7 +404,7 @@ class Parser:
             except Exception as e:
                 print(e)
                 print("ERROR: NO PROJECT CONFIG FOUND")
-                print("TO RESOLVE: CREATE PROJECT CONFIG 'xtracto.congig.py'")
+                print("TO RESOLVE: CREATE PROJECT CONFIG 'xtracto.config.py'")
                 raise e
         self.project_root = current_script
         return current_script
