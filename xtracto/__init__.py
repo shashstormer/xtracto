@@ -1,7 +1,7 @@
 """
 A web framework for integration with pypx
 """
-__version__ = "0.0.2"
+__version__ = "0.0.4"
 __author__ = "shashstormer"
 __description__ = "A web framework for integration with pypx"
 
@@ -474,7 +474,6 @@ class Pypx:
         if not children:
             log.warn("no children")
         _ = Parser(path="_layout.pypx", layout=True)
-        log.info(_.html_content)
         _.render()
         if self.parsed not in _.html_content:
             log.critical("please put {{children}} in the layout file where the page content must appear")
@@ -647,7 +646,6 @@ class Pypx:
         for _var in _vars:
             _ori_var = "{{"+_var+"}}"
             _var = _var.strip(" ")
-            log.info(_var)
             _var = _var.split("=", 1)
             if len(_var) == 2:
                 _default = _var[1]

@@ -4,7 +4,7 @@ with open("readme.md", "r") as fh:
 
 setup(
     name='xtracto',
-    version='0.0.3',
+    version='0.0.4',
     author='shashstormer',
     description='Xtracto is a lightweight web development framework designed to simplify the process of creating dynamic web pages using Python and pypx. ',
     long_description=long_description,
