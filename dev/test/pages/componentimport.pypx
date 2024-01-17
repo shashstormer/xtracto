@@ -1,0 +1,6 @@
+html
+    head
+        title
+            test component import
+    body
+        [[component.pypx]]

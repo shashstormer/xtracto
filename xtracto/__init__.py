@@ -1,527 +1,831 @@
-import inspect
+"""
+A web framework for integration with pypx
+"""
+__version__ = "0.0.2"
+__author__ = "shashstormer"
+__description__ = "A web framework for integration with pypx"
+
 import os
-import importlib.util
 import re
-import uvicorn
-from fastapi import FastAPI, Response
-from bs4 import BeautifulSoup, Tag, NavigableString, Comment
-import xtracto._images
+
+MAXIMUM_DEPTH_PROJECT_ROOT = 100
 
 
-class Parser:
-    def __init__(self, **_kwargs):
+class Utils:
+    @staticmethod
+    def import_module_by_path(module_path):
         """
-        You may pass the following kwargs:
+        Imports python module from the speficied module path
 
-            path: file path
 
-            content: content to be parsed to html
-
-            render_layout: this will load the paage into the layout defined in {pages_dir}/_layout.pypx (default True)
-
-            use_saved: Pass this variable to alway render the content from source file (default True)
-
-        note: path and content parameters are mutually exclusive.
-        :param _kwargs:
+        Parameters:
+        - module_path: path of python module to import
         """
-        self._kwargs = ["path", "content", "render_layout"]
-        for key in _kwargs:
-            if key not in self._kwargs:
-                raise ValueError(f"\"{key}\" is not a valid parameter")
-        self.project_root = None
-        self.pages_root = None
-        self.module_root = None
-        self.strip_imports = False
-        self.raise_value_errors_while_importing = False
-        self.imports = []
-        self.variables = {}
-        self.variables_list = []
-        self.get_project_root()
-        self.load_config()
-        if _kwargs.get("content", False) and _kwargs.get("path", False):
-            print("WARNING: BOTH CONTENT AND PATH PASSED USING CONTENT")
-            print("WARNING: USE EITHER CONTENT OR PATH")
-            content = _kwargs.get("content")
-            path = False
-        elif _kwargs.get("path", False):
-            path = _kwargs.get("path")
-            if not path.endswith("pypx"):
-                path += ".pypx"
-            with open(path) as file:
-                content = file.read()
-        else:
-            content = _kwargs.get("content", False)
-            path = False
-        if self.strip_imports and content:
-            content = content.strip("\n")
-        self.render_layout = _kwargs.get("render_layout", True)
-        self.content_loaded_from = "path" if path else "content"
-        self.raw_content_origin = path if path else content
-        self.raw_content = content
-        self.unmodfied_raw_content = content
-        self.html_content = ""
-        self.blocks = []
-        if self.content_loaded_from == "path" and _kwargs.get("use_saved", True):
-            self._render_saved()
-            if self.html_content:
-                print("Rendered saved content: %s" % self.raw_content_origin)
-                return
-        if self.raw_content:
-            self.parse_content()
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("module_name", module_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
 
-    def parse_content(self, **kwargs):
-        """
-        This a wrapper to call all the parsing methods.
-        This method can be called externally also,
-        but it is recommended that you initialize a new Parser instance with required arguments.
-        :param kwargs:
-        :return:
-        """
-        content = kwargs.get("content", False)
-        if not content:
-            content = self.raw_content
-        if not content:
-            raise ValueError("NO CONTENT FOUND")
-        self._clear_multiple_newlines()  # replace a sequence of newlines with single new line
-        self._parse_coments()
-        self._clear_multiple_newlines()
-        self._parse_variables()
-        self._clear_multiple_newlines()
-        self._parse_markdown()
-        self._clear_multiple_newlines()
-        self._parse_imports()
-        self._clear_multiple_newlines()
-        self._parse_blocks()
-        self._parse_to_html()
-        self._parse_to_normal()
-        if self.render_layout:
-            _soup = BeautifulSoup(self.html_content, 'html.parser')
-            try:
-                title = _soup.title.get_text()
-            except AttributeError:
-                pass
-            _head = _soup.head
-            try:
-                _title_tag = _head.title
-            except AttributeError:
-                _title_tag = False
-            if _title_tag:
-                _title_tag.extract()
-            _body_element = _soup.body
-            if _body_element:
-                _header_exists = _body_element.header is not None
-                _footer_exists = _body_element.footer is not None
-            else:
-                _header_exists = False
-                _footer_exists = False
-
-            def parse_bs4tag_to_plain(tag):
-                if isinstance(tag, Comment):
-                    return f"<!--{str(tag)}-->"
-                elif isinstance(tag, Tag):
-                    return tag.prettify()
-                elif isinstance(tag, NavigableString):
-                    return str(tag)
-                else:
-                    return ''
-
-            if _body_element:
-                _content_before_header = ''.join([parse_bs4tag_to_plain(tag) for tag in _body_element.contents[
-                                                                                        :_body_element.contents.index(
-                                                                                            _body_element.header)]] if _header_exists else '')
-
-                _content_after_header_before_footer = ''.join(
-                    [parse_bs4tag_to_plain(tag) for tag in _body_element.contents[
-                                                           _body_element.contents.index(
-                                                               _body_element.header):_body_element.contents.index(
-                                                               _body_element.footer) - 1]] if _header_exists and _footer_exists else ''.join(
-                        [parse_bs4tag_to_plain(tag) for tag in _body_element.contents]))
-
-                _content_after_footer = ''.join([parse_bs4tag_to_plain(tag) for tag in _body_element.contents[
-                                                                                       _body_element.contents.index(
-                                                                                           _body_element.footer) + 1:]]) if _footer_exists else ''
-
-                preheader = _content_before_header.strip().replace("{", "#{#").replace("\n", '#&N#')
-                children = _content_after_header_before_footer
-                postfooter = _content_after_footer.strip().replace("{", "#{#").replace("\n", '#&N#')
-                children = children.strip(postfooter)
-
-            else:
-                children = self.html_content
-
-            if _head:
-                headcontent = str("".join(
-                    parse_bs4tag_to_plain(i) for i in
-                    _head.contents) if _head and _head.contents else "").strip().replace(
-                    "{", "#{#").replace("\n", '#&N#')
-
-            for element in ["preheader", "postfooter"]:
-                try:
-                    if not locals()[element]:
-                        del locals()[element]
-                except (NameError, KeyError):
-                    pass
-            page = Parser(path=os.path.join(self.pages_root, "_layout.pypx"), render_layout=False)
-            if "children" not in page.variables_list:
-                print("ERROR: NO CHILDREN VARIABLE IN LAYOUT")
-                raise ValueError("No \"children\" variables specified in the _layout.pypx")
-            self.html_content = page.html_content
-        if not self.variables:
-            self._save_render()
-
-    def _save_render(self):
-        """
-        checks if the page is a static page and saves it if it is static othewise does nothing.
-        :return:
-        """
-        pass
-
-    def transform_to_parsable(self, content):
-        """
-        Use this method to transform your content into a form that will be compatible with the parser
-
-        This method is also used internally when importing css and js files
-        :param content:
-        :return:
-        """
-        pass
-
-    def _render_saved(self):
-        """
-        This method checks if the source file is older than the compiled file and if it is older,
-         it returs the compiled file otherwise it recompiles the file.
-        :return:
-        """
-        pass
-
-    def _parse_markdown(self):
-        """
-        Markdown parser (Support for markdown to be added soon)
-        :return:
-        """
-        pass
-
-    def create_sitemap(self, start_path_for_map="/"):
-        """
-        Creates sitemap.txt for pages in the pages folder with / (or the passed start path) as the path for all files.
-        :param start_path_for_map:
-        :return:
-        """
-        pass
-
-    def _parse_to_normal(self):
-        self.html_content = self.html_content.replace("#&n#", "\n").replace("#&N#", "\n")
-        groups_to_normalize = re.compile("(#(..?)#)").findall(self.html_content)
-        for group, value in groups_to_normalize:
-            self.html_content = self.html_content.replace(group, value)
-
-    def _clear_multiple_newlines(self):
-        content = self.raw_content
-        multiple_newlines = re.compile("(\n(\s*\n)+)").findall(content)
-        for newlines, _ in multiple_newlines:
-            content = content.replace(newlines, "\n")
-        self.raw_content = content
-
-    def _parse_blocks(self):
-        content = self.raw_content
-        result = []
-        stack = []
-        lines = content.split('\n')
-        for line in lines:
-            if not line:
-                continue  # Skip empty lines
-            indent_level = len(line) - len(line.lstrip())
-            line = line.strip()
-            while stack and stack[-1][0] >= indent_level:
-                stack.pop()
-            if stack:
-                current_indent, current_list = stack[-1]
-                while len(stack) > indent_level:
-                    stack.pop()
-                if line.startswith(";;"):
-                    new_list = line[1:-1]
-                    line = "?:attribute?:"
-                elif line.startswith("?:"):
-                    line = f"<!--{line[2:-2]}-->"
-                    new_list = []
-                else:
-                    new_list = []
-                current_list.append([line, new_list])
-                stack.append((indent_level, new_list))
-            else:
-                new_list = []
-                result.append([line, new_list])
-                stack.append((indent_level, new_list))
-        self.blocks = result
-        return result
-
-    def _get_variable_value(self, variable_name, default_value=False, definded_in_html=False):
-        """
-        :param variable_name:
-        :param default_value: This default value is used only in the case that there is no default value mentioned in the placeholder
-        :return:
-        """
-        frame = inspect.currentframe()
-        while frame:
-            if variable_name in frame.f_locals:
-                local_value = frame.f_locals[variable_name]
-                value = local_value
-                break
-            frame = frame.f_back
-        else:
-            if self.raise_value_errors_while_importing and not definded_in_html:
-                raise NameError(f"variable \"{variable_name}\" has not been defined")
-            value = default_value
-        return value
-
-    def _parse_to_html(self, blocks=None):
-        html = ""
-        if blocks is None:
-            blocks = self.blocks.copy()
-        for block in blocks:
-            if block[0] == "?:attribute?:":
-                continue
-            if block[1] and block[0]:
-                if block[0].startswith("<"):
-                    html += block[0] + self._parse_to_html(block[1])
-                    continue
-                html += f"<{block[0]}"
-                for elem in block[1].copy():
-                    if elem[0] == "?:attribute?:":
-                        html += f" {elem[1]}"
-                        block[1].remove(elem)
-                if block[1]:
-                    html += ">"
-                    html += self._parse_to_html(block[1])
-                    html += f"</{block[0]}>"
-                else:
-                    html += "/>"
-            elif block[0] and not block[1]:
-                html += " " + block[0]
-            elif not block[0] and not block[1]:
-                html += "<br>"
-            else:
-                html += f"<{block} />"
-        self.html_content = html
-        return html
-
-    def _parse_variables(self):
-        content = self.raw_content
-        vars_regex = re.compile("(\{\s*([^#](?:.*)?)\s*})")
-        self.variables_list = vars_regex.findall(content)
-        var_list = []
-        for var, var_name in self.variables_list:
-            if len(var_name.split("=")) == 2:
-                var_name, value = var_name.split("=")
-                var_name = var_name.strip(" ")
-                value = value.strip(" ")
-                self.variables[var] = self._get_variable_value(var_name, value, True)
-            else:
-                self.variables[var] = self._get_variable_value(var_name)
-            var_list.append(var_name)
-        self.variables_list = var_list
-        for var in self.variables:
-            self.raw_content = self.raw_content.replace(var, str(self.variables[var]))
-
-    def _parse_imports(self):
-        content = self.raw_content.split("\n")
-        for line in content:
-            indent = len(line) - len(line.lstrip())
-            tag = line.strip()
-            if tag.startswith("[") and tag.endswith("]"):
-                tag_vars_data = re.compile("\|(.*)\|").findall(tag)
-                if tag_vars_data:
-                    tag_vars = [[i.split("=")[0].strip(), i.split("=")[1].strip()] for i in tag_vars_data[0].split(";")
-                                if len(i.split("=")) == 2]
-                    tag = tag.replace(f"|{tag_vars_data[0]}|", "").strip()
-                else:
-                    tag_vars = []
-                tag = tag[1:-1]
-                for variable, value in tag_vars:
-                    locals()[variable] = value
-                tag = tag.strip()
-                if tag not in self.imports:
-                    self.imports.append(tag)
-                html = Parser(path=os.path.join(self.module_root, tag), render_layout=False).html_content
-                html = (" " * indent) + html
-                self.raw_content = self.raw_content.replace(line, html)
-                for variable, value in tag_vars:
-                    del locals()[variable]
-        return content
-
-    def _parse_coments(self):
-        raw_content = self.raw_content.split("\n")
-        new_raw_content = []
-        forwarded_count = 0
-        for num, line in enumerate(raw_content.copy()):
-            if forwarded_count > 0:
-                forwarded_count -= 1
-                continue
-            while raw_content[num].count("?:") % 2 == 1:
-                forwarded_count += 1
-                raw_content[num] += " " + raw_content[num + forwarded_count]
-                line = raw_content[num]
-                spaces = re.compile("(\s\s+)").findall(line)
-                spaces.pop(0)
-                for space in spaces:
-                    line = line.replace(space, " ")
-            while "?:" in line:
-                line = line.replace("?:", "<!--", 1).replace("?:", "-->", 1)
-            new_raw_content.append(line)
-        self.raw_content = "\n".join(new_raw_content)
-        raw_content = self.raw_content.split("\n")
-        new_raw_content = []
-        forwarded_count = 0
-        for num, line in enumerate(raw_content.copy()):
-            if forwarded_count > 0:
-                forwarded_count -= 1
-                continue
-            while raw_content[num].count("::") % 2 == 1:
-                forwarded_count += 1
-                raw_content[num] += " " + raw_content[num + forwarded_count]
-                line = raw_content[num]
-                spaces = re.compile("(\s\s+)").findall(line)
-                spaces.pop(0)
-                for space in spaces:
-                    line = line.replace(space, " ")
-            new_raw_content.append(line)
-        self.raw_content = "\n".join(new_raw_content)
-        content = self.raw_content
-        comments_regex = re.compile("(::.*::)")
-        for comment in comments_regex.findall(content):
-            self.raw_content = self.raw_content.replace(comment, "")
-        return self.raw_content
-
-    def get_project_root(self):
+    @staticmethod
+    def get_project_root():
         current_script = os.getcwd()
         ic = 0
         while not os.path.isfile(os.path.join(current_script, 'xtracto.config.py')):
             ic += 1
-            try:
-                current_script = os.path.dirname(current_script)
-                if ic > 100:
-                    raise FileNotFoundError("NO PROJECT CONFIGURATION FILE")
-            except Exception as e:
-                print(e)
-                print("ERROR: NO PROJECT CONFIG FOUND")
-                print("TO RESOLVE: CREATE PROJECT CONFIG 'xtracto.config.py'")
-                raise e
-        self.project_root = current_script
+            current_script = os.path.dirname(current_script)
+            if ic > MAXIMUM_DEPTH_PROJECT_ROOT:
+                Log.critical(Error.ProjectConfig.message)
+                if Config().debug:
+                    Log.debug(Error.ProjectConfig.resolution)
+                raise Error.ProjectConfig.error
         return current_script
 
-    def load_config(self):
-        def import_module_by_path(module_path):
-            spec = importlib.util.spec_from_file_location("module_name", module_path)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            return module
+    @staticmethod
+    def get_config_file():
+        return os.path.join(Utils.get_project_root(), "xtracto.config.py")
 
-        config = import_module_by_path(os.path.join(self.project_root, 'xtracto.config.py'))
-        self.module_root = os.path.join(self.project_root, getattr(config, "modules_dir", "xtractocomponents"))
-        self.pages_root = os.path.join(self.project_root, getattr(config, "pages_dir", "xtractopages"))
-        self.strip_imports = getattr(config, 'strip_imports', True)
-        self.raise_value_errors_while_importing = getattr(config, 'raise_value_errors_while_importing', True)
-
-    def compile(self, start_path_for_map="/"):
+    @staticmethod
+    def add_content_at_indent(line: int, indent: int, content: str, file_content: str):
         """
-        This method will render non-dynamic pages to html and save it
-        and create a sitemap in the pages directory with the name 'sitemap.txt'
-        which assumes you have them all under the same start path.
-        :return:
+        Adds content at a specific indentation level in the given file content.
+
+        Parameters:
+        - line: The line number where the content will be added.
+        - indent: The desired indentation level.
+        - content: The content to be added.
+        - file_content: The existing content of the file.
+
+        Returns:
+        - updated_file_content: The file content after adding the new content.
+        """
+        lines = file_content.split('\n')
+        if 1 <= line <= len(lines):
+            target_indent = indent * ' '
+            content = content.strip("\n")
+            content = content.replace("\n", f"\n{target_indent}")
+            new_line = f"{target_indent}{content}"
+            lines.insert(line - 1, new_line)
+            updated_file_content = '\n'.join(lines)
+            return updated_file_content
+        else:
+            if Config().debug:
+                Log.error(Error.LineInsertError.InvalidLineNumber.message, line, indent, content, file_content)
+                Log.debug(Error.LineInsertError.InvalidLineNumber.resolution)
+            raise Error.LineInsertError.InvalidLineNumber.error
+
+    @staticmethod
+    def root_path(path):
+        return os.path.join(Utils.get_project_root(), path)
+
+    @staticmethod
+    def get_variable_value_from_nearest_frame(_variable_name, _default_value=False, _raise_error=True,
+                                              _use_current=True, _skip_after_current=2):
+        """
+            :param _variable_name: The Name of the variable whose value needs to be retrived.
+            :param _default_value: This default value is used only in the case that there is no default value mentioned in the placeholder.
+            :param _raise_error: Raise error if the variable is not found in any scope.
+            :param _use_current: Look for variable in the calling scope.
+            :param _skip_after_current: Number of frames to skip without looking for the variable value (current frame controlled by _use_current).
+            :return:
+            """
+        import inspect as _inspect
+        _frame = _inspect.currentframe()
+        _frame = _frame.f_back
+        if not _use_current:
+            while _skip_after_current > 0:
+                _frame = _frame.f_back
+                _skip_after_current -= 1
+        while _frame:
+            if _variable_name in _frame.f_locals:
+                _local_value = _frame.f_locals[_variable_name]
+                _value = _local_value
+                break
+            if _skip_after_current <= 0:
+                _frame = _frame.f_back
+            while _skip_after_current > 0:
+                _frame = _frame.f_back
+                _skip_after_current -= 1
+        else:
+            if Config().raise_value_errors_while_importing and _raise_error:
+                raise NameError(f"variable \"{_variable_name}\" has not been defined")
+            _value = _default_value
+        return _value
+
+    @staticmethod
+    def is_node_module_installed(module_name):
+        """
+            Checks if spefied node module is installed.
+
+            Returns:
+            - bool: True if module is installed, False otherwise.
+            """
+        import subprocess
+        try:
+            subprocess.run([module_name, '--version'], check=True)
+            return True
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return False
+
+    @staticmethod
+    def get_user_home():
+        """
+        Gets the user's home directory.
+
+        Returns:
+        - str: The absolute path to the user's home directory.
+        """
+        home_directory = os.path.expanduser("~")
+        return home_directory
+
+
+class Parser:
+    def __init__(self, path=None, content=None, module=False, layout=False):
+        """
+        Wrapper for parsing a pypx to a deliverable html file.
+        """
+        self.raw_type = "path" if path is not None else "content"
+        self.raw_origin = path if path is not None else content
+        if path:
+            if module:
+                _fpath = os.path.join(str(Config().module_root), path)
+            else:
+                _fpath = os.path.join(str(Config().pages_root), path)
+            with open(_fpath) as f:
+                self.content = f.read()
+        else:
+            self.content = content
+        self.raw_content = self.content
+        self.pypx_parser = Pypx(self.content, self.raw_origin)
+        self.html_content = ""
+        self.layout = layout
+        del path, content, module, layout
+        if self.content:
+            if self.layout:
+                self.pypx_parser.load_variables()
+            self.parse()
+
+    def parse(self):
+        self.pypx_parser.parse(self.layout)
+        self.html_content = self.pypx_parser.parsed
+
+    def render(self):
+        self.pypx_parser.load_variables()
+        self.pypx_parser.do_imports()
+        self.pypx_parser.load_variables()
+        self.pypx_parser.normalize()
+        self.html_content = self.pypx_parser.parsed
+
+
+class Config:
+    def __init__(self):
+        """
+        load xtracto.config.py
+        """
+        config = Utils.import_module_by_path(Utils.get_config_file())
+        self.project_root = Utils.get_project_root()
+        self.module_root = Utils.root_path(getattr(config, "modules_dir", "xtractocomponents"))
+        self.pages_root = Utils.root_path(getattr(config, "pages_dir", "xtractopages"))
+        self.strip_imports = getattr(config, 'strip_imports', True)
+        self.debug = getattr(config, 'debug', os.getenv("env", "prod").startswith("dev"))
+        self.log_level = "debug" if self.debug else getattr(config, 'log_level', "info")
+        self.raise_value_errors_while_importing = getattr(config, 'raise_value_errors_while_importing', True)
+        del config
+
+
+class Log:
+    def __init__(self):
+        """
+        Formatted Messages for Warning, Logging, Errors etc
         """
         pass
-        self.create_sitemap(start_path_for_map)
+
+    @staticmethod
+    def xtracto_initiated():
+        pass
+
+    @staticmethod
+    def get_logger():
+        import requestez.helpers as ez_helper
+        config = Config()
+        ez_helper.set_log_level(config.log_level)
+        logger = ez_helper.get_logger()
+        return logger
+
+    @staticmethod
+    def critical(message):
+        Log.get_logger().log("c", msg=message, color="red")
+
+    @staticmethod
+    def error(message, *args):
+        Log.get_logger().stack("e", *args, msg=message, color="red")
+
+    @staticmethod
+    def warn(message):
+        Log.get_logger().log("w", msg=message, color="yellow")
+
+    @staticmethod
+    def info(message):
+        Log.get_logger().log("i", msg=message, color="CYAN")
+
+    @staticmethod
+    def debug(message):
+        Log.get_logger().log("d", msg=message, color="reset")
+
+
+log = Log
+
+
+class Error:
+    """
+    Base class for all errors
+    """
+
+    class ProjectConfig:
+        message = "Project Config file not found (xtracto.config.py)"
+        error = FileNotFoundError(message)
+        resolution = "RESOLUTION: Create file 'xtracto.config.py' at your project root directory"
+
+    class LineInsertError:
+        class InvalidLineNumber:
+            message = "Invalid line number. Please provide a valid line number."
+            error = ValueError(message)
+            resolution = "RESOLUTION: Enter a valid line number or Check Input Content"
+
+
+class FileManager:
+    def __init__(self):
+        """
+        Manages Files and Controls access,
+        Manages api request origins,
+        Manages asset delivery allowance.
+        """
+        pass
+
+    @staticmethod
+    def get_file_if_valid(path):
+        valid = FileManager.Valid(path).valid()
+        if valid[0]:
+            if valid[1]:
+                return valid[1]
+            with open(os.path.join(str(Config().module_root), path)) as f:
+                return f.read()
+        else:
+            log.critical(path + " not used")
+            return ""
+
+    @staticmethod
+    def get_file_type(path):
+        """
+            Returns the file type (extension) of the given file path.
+
+            Args:
+            - file_path (str): The path of the file.
+
+            Returns:
+            - str: The file type (extension).
+            """
+        _, file_extension = os.path.splitext(path)
+        return file_extension[1:]
+
+    @staticmethod
+    def get_delivery_type(path):
+        pass
+
+    class Valid:
+        def __init__(self, path):
+            """
+            Needs to be initialized for auto-detection. You may use specific validators without initializing this class.
+            You must not use either this class or its methods in production.
+            Only the bundled files are to be used in production.
+            You must bundle them before using in production.
+            Initialize the build method to create a production build.
+            """
+            self.path = path
+            self.file_type = FileManager.get_file_type(path)
+            self.invalid_types = ["__init__", "valid", "error"]
+
+        def valid(self) -> list[[bool, str]]:
+            """
+            Detects the file content type and Checks if it is valid
+            """
+            if self.file_type in self.invalid_types:
+                raise ValueError("invalid file type")
+            func = getattr(self, self.file_type, self.unknown)
+            return func(self.path)
+
+        def error(self):
+            if self.file_type in self.invalid_types:
+                raise ValueError("invalid file type")
+            func = getattr(self, self.file_type, self.unknown)
+            return func(self.path)[1]
+
+        @staticmethod
+        def js(path):
+            """
+                Validates a JavaScript file using ESLint.
+
+                Args:
+                - file_path (str): The path of the JavaScript file.
+
+                Returns:
+                - str: Validation result.
+                """
+            import subprocess
+            try:
+                eslint = Utils.get_user_home() + "\\node_modules\\eslint\\bin\\eslint.js"
+                result = subprocess.run(["node", eslint, os.path.join(str(Config().module_root), path)],
+                                        capture_output=True, text=True)
+                if result.returncode == 0:
+                    return [True, ""]
+                else:
+                    log.critical(f"Validation failed. Errors found:\n{result.stdout}")
+                    return [False, result.stdout]
+            except subprocess.CalledProcessError as e:
+                log.critical(f"Error during validation: {e}")
+                return [False, e]
+
+        @staticmethod
+        def sass(path):
+            """
+            Validates a SASS file using Stylelint.
+
+            Args:
+            - file_path (str): The path of the SASS/SCSS/CSS file.
+
+            Returns:
+            - str: Validation result.
+            """
+            import subprocess
+            try:
+                stylelint = Utils.get_user_home() + "\\node_modules\\stylelint\\bin\\stylelint.mjs"
+                config = f"{Utils.get_user_home()}\\node_modules\\stylelint-config-recommended-scss\\index.js"
+                result = subprocess.run(
+                    ["node", stylelint, os.path.join(str(Config().module_root), path), "-c", config],
+                    capture_output=True,
+                    text=True)
+                if result.returncode == 0:
+                    return [True, ""]
+                else:
+                    log.critical(f"Validation failed. Errors found:\n{result.stderr}")
+                    return [False, result.stderr]
+            except subprocess.CalledProcessError as e:
+                log.critical(f"Error during validation: {e}")
+                return [False, e]
+
+        @staticmethod
+        def scss(path):
+            return FileManager.Valid.sass(path)
+
+        @staticmethod
+        def css(path):
+            return FileManager.Valid.sass(path)
+
+        @staticmethod
+        def unknown(path):
+            log.info(f"Unknown file type: {path}")
+            return [True, ""]
+
+        @staticmethod
+        def pypx(path):
+            try:
+                _parser = Parser(path=path, module=True)
+                _parser.parse()
+                return [True, _parser.html_content]
+            except Exception as e:
+                return [False, e]
+
+
+class Pypx:
+    def __init__(self, content=None, fname=None):
+        """
+        Parses pypx
+        """
+        if content is None:
+            content = ""
+        content = content.replace("\t", " " * 4)
+        self.content = content.split("\n")
+        self.fname = fname
+        self.parsing = self.content.copy()
+        self.groups = [
+            ["::", "::"],  # Removed comment
+            ["?:", ":?"],  # Comment to be inserted in html
+            ["{{", "}}"],  # Variable Field
+            [";;", ";;"],  # HTML Attribute
+            ["[[", "]]"],  # Import Files
+            ["(-(", ")-)"],  # Markdown Content
+            ["{[", "]}"],  # Bundling groups
+        ]
+        self.void_elements = [
+            "area",
+            "base",
+            "br",
+            "col",
+            "embed",
+            "hr",
+            "img",
+            "input",
+            "link",
+            "meta",
+            "param",
+            "source",
+            "track",
+            "wbr",
+        ]
+        self.elements = [
+            "!DOCTYPE html", "abbreviation", "acronym", "address", "anchor", "applet", "article", "aside",
+            "audio", "basefont", "bdi", "bdo", "bgsound", "big", "blockquote", "body", "bold", "break",
+            "button", "caption", "canvas", "center", "cite", "code", "colgroup", "column", "comment", "data",
+            "datalist", "dd", "define", "delete", "details", "dialog", "dir", "div", "dl", "dt", "embed", "fieldset",
+            "figcaption", "figure", "font", "footer", "form", "frame", "frameset", "head", "header", "heading",
+            "hgroup", "html", "iframe", "ins", "isindex", "italic", "kbd", "keygen", "label",
+            "legend", "list", "main", "mark", "marquee", "menuitem", "meter", "nav", "nobreak", "noembed",
+            "noscript", "object", "optgroup", "option", "output", "paragraphs", "phrase", "pre", "progress",
+            "q", "rp", "rt", "ruby", "s", "samp", "section", "small", "spacer", "span", "strike", "strong",
+            "style", "sub", "sup", "summary", "svg", "table", "tbody", "td", "template", "tfoot", "th", "thead",
+            "time", "title", "tr", "tt", "underline", "var", "video", "xmp"
+        ]
+        self.parsed = ""
+        self.blocks = []
+        del content, fname
+
+    def parse(self, layout=False):
+        """
+        imports files, parses other stuff, does not replace variables (this is because it is required to create build files)
+        """
+        self.make_groups_valid()
+        self.generate_bundle()
+        self.parse_comments()
+        self.parse_blocks()
+        self.load_blocks()
+        self.normalize()
+        if not layout:
+            self.use_layout()
+
+    def use_layout(self):
+        _layout_file = os.path.join(str(Config().pages_root), "_layout.pypx")
+        if not os.path.exists(_layout_file):
+            print("NO LAYOUT FILE")
+            return
+        children = self.parsed
+        head = re.compile("<head>(.*)</head>").findall(self.parsed)
+        head = head[0] if head else ""
+        children = children.replace(f"<head>{head}</head>", "")
+        if not children:
+            log.warn("no children")
+        _ = Parser(path="_layout.pypx", layout=True)
+        log.info(_.html_content)
+        _.render()
+        if self.parsed not in _.html_content:
+            log.critical("please put {{children}} in the layout file where the page content must appear")
+        self.parsed = _.html_content
+
+    def make_groups_valid(self):
+        num = 0
+        while num < len(self.parsing):
+            line = self.parsing[num]
+            for value1, value2 in self.groups:
+                while ((
+                               (line.count(value1) != line.count(value2)) and (value1 != value2)
+                       )
+                       or (
+                               (line.count(value1) % 2 != 0) and (value1 == value2)
+                       )):
+                    try:
+                        self.parsing[num] += "#&N#" + self.parsing[num + 1]
+                        self.parsing.pop(num + 1)
+                        line = self.parsing[num]
+                    except IndexError:
+                        log.error("Syntax error in file being parsed", "FILE CONTENT:\n" + "\n".join(self.parsing))
+                        self.parsed = []
+                        return
+            num += 1
+
+    def parse_comments(self):
+        self.parsing = [
+            i.replace("?:", "<!--").replace(":?", "-->")
+            for i in
+            re.sub("(::.*::)", "", "\n".join(self.parsing)).split("\n")
+            if i
+        ]
+
+    def normalize(self, content=None):
+        if content is None:
+            content = self.parsed
+        content = content.replace("#&N#", "\n")
+        if content is None:
+            self.parsed = content
+        return content
+
+    def parse_blocks(self):
+        stack = []  # [[indent, element, children...]...]
+        parent_indent = []
+        for line in self.parsing:
+            indent = len(line) - len(line.lstrip(" "))
+            line = line.lstrip(" ")
+            if not line:
+                continue
+            if not stack:
+                stack.append([indent, line, []])
+                parent_indent.append(indent)
+                continue
+            curr_depth = 0
+            parent = stack
+            while (curr_depth < len(parent_indent)) and (indent > parent_indent[curr_depth]):
+                if indent == parent_indent[curr_depth]:
+                    break
+                curr_depth += 1
+                parent = parent[-1]
+                if len(parent) == 3:
+                    parent = parent[2]
+                if not parent:
+                    break
+            parent_indent = parent_indent[:curr_depth]
+            parent.append([indent, line, []])
+            parent_indent.append(indent)
+        self.blocks = stack
+
+    def load_blocks(self, blocks=None):
+        if blocks is None:
+            blocks = self.blocks.copy()
+        loaded_block = ""
+        orignal_blocks = [i for i in blocks.copy()]
+        for block in blocks:
+            _block_orignal = orignal_blocks[orignal_blocks.index(block)].copy()
+            if block[2]:
+                loaded_block += "<" + block[1]
+                for child in block[2].copy():
+                    # THIS SECTION IS FOR WARNING WHEN ELEMENT DOES NOT HAVE CHILDREN
+                    if block[1].lower() in self.elements and len(block[2]) == 1 and block[2][0][1].startswith(";;"):
+                        pred_line = 0
+                        for num, line in enumerate(self.content):
+                            if line.lstrip(" ").lower() == block[1].lower():
+                                forward = 1
+                                while not line.lstrip(" "):
+                                    forward += 1
+                                    if num + forward > len(self.content):
+                                        pred_line = num + forward
+                                        break
+                                if pred_line == 0:
+                                    if self.content[num + forward].lstrip(" ").lower().startswith(
+                                            _block_orignal[2][0][1].lower()):
+                                        pred_line = num + forward
+                        log.warn(f"\n{self.fname}:{pred_line} -> element \"" + block[
+                            1] + "\" must have children elements/content this has been considered as an element as it has attributes but it is recomended that you add content")
+                        # SECTION FOR WARNING WHEN ELEMENT DOES NOT HAVE CHILDREN ENDS HERE
+                    if child[1].startswith(";;"):
+                        loaded_block += " " + child[1][2:-2]
+                        block[2].remove(child)
+                if not block[2]:
+                    if block[1].lower() in self.elements:
+                        loaded_block += f"></{block[1]}>"
+                    else:
+                        loaded_block += " />"
+                else:
+                    loaded_block += ">"
+
+                    # THIS SECTION IS FOR WARNING WHEN VOID ELEMENT HAS CHILDREN
+                    if block[1].lower() in self.void_elements:
+                        pred_line = 0
+                        for num, line in enumerate(self.content):
+                            if line.lstrip(" ").lower() == block[1].lower():
+                                forward = 1
+                                while self.content[num + forward].lstrip(" ").startswith(";;"):
+                                    forward += 1
+                                    if num + forward > len(self.content):
+                                        pred_line = num + forward - 1
+                                        break
+                                if pred_line == 0:
+                                    if self.content[num + forward].lstrip(" ").lower().startswith(
+                                            block[2][0][1].lower()):
+                                        pred_line = num + forward
+                                pred_line += 1
+                        log.warn(f"\n{self.fname}:{pred_line} -> element \"" + block[
+                            1] + "\" cannot have children elements/content")
+                    # SECTION FOR WARNING WHEN VOID ELEMENT HAS CHILDREN ENDS HERE
+
+                    loaded_block += self.load_blocks(block[2])
+                loaded_block += f"</{block[1]}>"
+            elif not block[2]:
+                # THIS SECTION IS FOR WARNING WHEN ELEMENT DOES NOT HAVE CHILDREN
+                if block[1].lower() in self.elements:
+                    pred_line = 0
+                    for num, line in enumerate(self.content):
+                        if line.lstrip(" ").lower() == block[1].lower():
+                            forward = 1
+                            while self.content[num + forward].lstrip(" ").startswith(";;") or not line.lstrip(" "):
+                                forward += 1
+                                if num + forward > len(self.content):
+                                    pred_line = num + forward
+                                    break
+                            if pred_line == 0:
+                                nextx_indent = len(self.content[num + forward]) - len(
+                                    self.content[num + forward].lstrip(" "))
+                                curendtx_indent = len(self.content[num]) - len(self.content[num].lstrip(" "))
+                                if nextx_indent <= curendtx_indent:
+                                    pred_line = num + forward
+                    log.warn(f"\n{self.fname}:{pred_line} -> element \"" + block[
+                        1] + "\" must have children elements/content as this does not have any children it will be considered as plain text")
+                # SECTION FOR WARNING WHEN ELEMENT DOES NOT HAVE CHILDREN ENDS HERE
+                loaded_block += block[1]
+        if blocks == self.blocks:
+            self.parsed = loaded_block
+        return loaded_block
+
+    def load_variables(self, _content=None, _load_list: list or None = None):
+        _original_content = _content
+        if _content is None:
+            _content = self.parsed
+        if _load_list is None:
+            _load_list = []
+        for var, val in _load_list:
+            locals()[val] = val
+        if _load_list:
+            del var, val
+        _vars_reg = re.compile(r'\{\{(.*?)}}')
+        _vars = _vars_reg.findall(_content)
+        for _var in _vars:
+            _ori_var = "{{"+_var+"}}"
+            _var = _var.strip(" ")
+            log.info(_var)
+            _var = _var.split("=", 1)
+            if len(_var) == 2:
+                _default = _var[1]
+                _raise_error = False
+            else:
+                _default = False
+                _raise_error = True
+            _var = _var[0]
+            _value = Utils.get_variable_value_from_nearest_frame(_variable_name=_var, _default_value=_default,
+                                                                 _raise_error=_raise_error)
+            _content = _content.replace(_ori_var, _value)
+        if _original_content is None:
+            self.parsed = _content
+        return _content
+
+    def do_imports(self, content=None):
+        ori_cont = content
+        if content is None:
+            content = self.parsed
+        fixed = Pypx(content=content)
+        fixed.make_groups_valid()
+        fixed = "\n".join(fixed.parsing)
+        file_groups = re.compile("(\[\[.*]])")
+        files = re.compile(r"\[\[([a-zA-Z0-9. /\\]+)(?:.*)?]]")
+        parameters = re.compile("\[\[[a-zA-Z0-9.]+\|\|(.*)\|\|.*")
+        for group in file_groups.findall(fixed):
+            file = files.findall(group)
+            file = file[0]
+            parms = parameters.findall(group)
+            final_parms = []
+            while parms:
+                param = parms.pop()
+                if len(param.split("||")) > 1:
+                    final_parms.extend(param.split("||"))
+                    continue
+                final_parms.append(param)
+            parms = [i.replace("#|#", "|") for i in final_parms]
+            for num, param in enumerate(parms.copy()):
+                parms[num] = param.strip("#&N#").strip(" ").strip("#&N#").strip(" ")
+            parms = [i.split("=") for i in parms]  # [[key, value]...]
+            cont = FileManager.get_file_if_valid(file)
+            cont = self.load_variables(_content=cont, _load_list=parms)
+            fixed = fixed.replace(group, cont)
+        if ori_cont is None:
+            self.parsed = fixed
+        return fixed
+
+    def generate_bundle(self, content="", path_name=""):
+        import datetime
+        start = datetime.datetime.now()
+        oric = content if content else None
+        if not content:
+            content = "\n".join(self.parsing)
+        if not path_name:
+            path_name = self.fname
+            if not path_name:
+                log.critical("You cannot use bundles while generating from string")
+                log.debug("PATH NAME IS: \n" + path_name)
+                return
+        path_name = path_name.replace("/", "\\")
+        if path_name.count(".") > 1:
+            path_name = ".".join(path_name.split(".")[:-1])
+        if path_name.startswith(".\\"):
+            pass
+        elif path_name.startswith("\\"):
+            path_name = "." + path_name
+        else:
+            path_name = ".\\" + path_name
+        fixed = Pypx(content=content)
+        fixed.make_groups_valid()
+        fixed = "\n".join(fixed.parsing)
+        file_groups = re.compile("(\[\{.*}])")
+        files = re.compile(r"\[\{([a-zA-Z0-9. /\\]+)(?:.*)?}]")
+        parameters = re.compile("\[\{[a-zA-Z0-9.]+\|\|(.*)\|\|.*")
+        bundles = {}
+        for group in file_groups.findall(fixed):
+            file = files.findall(group)
+            file = file[0]
+            bgroup = file.split(".")[-1]
+            if bgroup in bundles:
+                bundles[bgroup]["files"].append(group)
+                bundles[bgroup]["tohash"] += file + str(os.path.getmtime(os.path.join(str(Config().module_root), file)))
+            else:
+                try:
+                    mtime = str(os.path.getmtime(os.path.join(str(Config().module_root), file)))
+                except FileNotFoundError:
+                    try:
+                        mtime = str(os.path.getmtime(file))
+                    except FileNotFoundError:
+                        mtime = ""
+                bundles[bgroup] = {"files": [group], "content": "",
+                                   "tohash": file + mtime,
+                                   "hash": ""}
+
+        for bgroup in bundles:
+            h = 2166136261
+            for byte in bundles[bgroup]["tohash"].encode():
+                h = (h ^ byte) * 16777619
+            somehash = format(h & 0xFFFFFFFFFFFFFFFF, 'x')[-8:]
+            bundles[bgroup]["hash"] = somehash
+
+            # USE EXISTING BUNDLE IF THE FILES ARE UNMODIFIED
+            if os.path.exists(
+                    os.path.join(str(Config().module_root), path_name + "." + bundles[bgroup]["hash"] + "." + bgroup)):
+                continue
+
+            # REMOVE EXISTING BUNDLES WITH SAME NAME
+            file_dir = os.path.dirname(
+                os.path.join(str(Config().module_root), path_name + "." + bundles[bgroup]["hash"] + "." + bgroup))
+            for file in os.listdir(file_dir):
+                file = os.path.join(file_dir, file)
+                startwith = str(os.path.join(str(Config().module_root), path_name)) + "."
+                endwith = "." + bgroup
+                if os.path.isfile(file) and file.startswith(startwith) and file.endswith(endwith):
+                    os.remove(file)
+
+            for group in bundles[bgroup]["files"]:
+                file = files.findall(group)
+                file = file[0]
+                parms = parameters.findall(group)
+                final_parms = []
+                while parms:
+                    param = parms.pop()
+                    if len(param.split("||")) > 1:
+                        final_parms.extend(param.split("||"))
+                        continue
+                    final_parms.append(param)
+                parms = [i.replace("#|#", "|") for i in final_parms]
+                for num, param in enumerate(parms.copy()):
+                    parms[num] = param.strip("#&N#").strip(" ").strip("#&N#").strip(" ")
+                parms = [i.split("=") for i in parms]  # [[key, value]...]
+                cont = FileManager.get_file_if_valid(file)
+                cont = self.load_variables(_content=cont, _load_list=parms)
+                bundles[bgroup]["content"] += cont
+        for bgroup in bundles:
+            with open(os.path.join(str(Config().module_root), path_name + "." + bundles[bgroup]["hash"] + "." + bgroup),
+                      "wt") as f:
+                f.write(bundles[bgroup]["content"])
+            while len(bundles[bgroup]["files"]) > 1:
+                popped = bundles[bgroup]["files"].pop(0)
+                content = content.replace(popped, "")
+            popped = bundles[bgroup]["files"].pop(0)
+            f_url = (path_name + "." + bundles[bgroup]["hash"] + "." + bgroup)[1::].replace("\\", "/")
+            content = content.replace(popped, f_url)
+            elapsed_time = datetime.datetime.now() - start
+            if elapsed_time > datetime.timedelta(seconds=1):
+                print(f'CREATED BUNDLE : {f_url}\nIN: {elapsed_time}')
+        if oric is None:
+            self.parsing = content.split("\n")
+        return content
+
+
+class Markdown:
+    def __init__(self, content=""):
+        """
+        Parses markdown
+        """
+        import markdown2
+        self.content = content
+        self.parsed = markdown2.markdown(content)
 
 
 class App:
-    """
-    You can use this if you do not want any hassle setting up your server.
-    This class will automatically create and run your app ant the specified port
-    (default 5005) and host (default 0.0.0.0),
-    and you can visit there, and it will automatically render your pages.
-    this feature uses fastapi and uvicorn.
-    """
+    def __init__(self):
+        for _ in range(10):
+            log.critical("THIS FEATURE IS NOT IMPLEMENTED DO NOT USE THIS")
+        from fastapi import FastAPI, HTTPException, status
+        import uvicorn
+        self.app = FastAPI()
+        self.add_routes()
+        self.not_authorized = HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                                            detail="You are not authorized to access this file")
+        uvicorn.run(self.app, )
 
-    def __init__(self, _host="0.0.0.0", _port=5005):
-        _app = FastAPI()
-        _parser_instance_for_config = Parser()
-
-        @_app.get("/favicon.ico")
-        async def _favicon():
-            return _images.favicon
-
-        @_app.get("/{_path:path}")
-        async def _render_page(_path="index"):
-            if _path == "":
-                _path += "index"
-            if _path.startswith("_"):
-                return Response("Not Allowed")
-            try:
-                _parsed = Parser(path=os.path.join(_parser_instance_for_config.pages_root, _path + ".pypx"))
-            except FileNotFoundError:
-                try:
-                    _parsed = Parser(path=os.path.join(_parser_instance_for_config.pages_root, _path, "index.pypx"))
-                except FileNotFoundError:
-                    return Response("404", 404)
-            return Response(_parsed.html_content)
-
-        uvicorn.run(_app, host=_host, port=_port)
-
-
-class Tests:
-    def __init__(self, content, path):
-        self.test_path = self.path_test(path)
-        self.test_content = self.content_test(content)
-
-    class path_test:
-        def __init__(self, path):
-            self.parser = Parser(path=path)
-
-        def test(self):
-            print("MODULES DIR : ", self.parser.module_root)
-            print("TEST CONTENT : ")
-            print(("-" * 25) + "_" + ("-" * 25))
-            print(self.parser.raw_content)
-            print(("-" * 25) + "x" + ("-" * 25))
-            print("VARIABLES LIST :", self.parser.variables_list)
-            print("VARIABLES :", self.parser.variables)
-            print(("-" * 25) + "_" + ("-" * 25))
-            print(self.parser.raw_content)
-            print(("-" * 25) + "x" + ("-" * 25))
-            print("BLOCKS : ", self.parser.blocks)
-            print(("-" * 25) + "x" + ("-" * 25))
-            print("HTML : ", self.parser.html_content)
-
-    class content_test:
-        def __init__(self, content):
-            self.parser = Parser(content=content)
-
-        def test(self):
-            print("MODULES DIR : ", self.parser.module_root)
-            print("TEST CONTENT : ")
-            print(("-" * 25) + "_" + ("-" * 25))
-            print(self.parser.raw_content)
-            print(("-" * 25) + "x" + ("-" * 25))
-            print("VARIABLES LIST :", self.parser.variables_list)
-            print("VARIABLES :", self.parser.variables)
-            print(("-" * 25) + "_" + ("-" * 25))
-            print(self.parser.raw_content)
-            print(("-" * 25) + "x" + ("-" * 25))
-            print("BLOCKS : ", self.parser.blocks)
-            print(("-" * 25) + "x" + ("-" * 25))
-            print("HTML : ", self.parser.html_content)
-
-    def call_tests(self):
-        self.test_path.test()
-        for i in range(3):
-            print(("-" * 25) + "x" + ("-" * 25))
-        self.test_content.test()
-
-
-def test(file):
-    Tests(open(file).read(), file).call_tests()
-    App()
-
-
-if __name__ == "__main__":
-    test("testrawcontent.pypx")
+    def add_routes(self):
+        @self.app.get("/{path:path}")
+        async def serve_pages(path: str = ""):
+            if path == "":
+                path += "index"
+            if path.startswith("_"):
+                raise self.not_authorized

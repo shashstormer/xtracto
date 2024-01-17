@@ -8,11 +8,6 @@ __description__ = "A web framework for integration with pypx"
 import os
 import re
 
-# import uvicorn as _uvicorn
-# from fastapi import FastAPI as _FastAPI, Response as _Response
-# from bs4 import BeautifulSoup as _BeautifulSoup, Tag as _Tag, NavigableString as _NavigableString, Comment as Comment
-# import xtracto._images as _xtracto_images
-
 MAXIMUM_DEPTH_PROJECT_ROOT = 100
 
 
@@ -84,7 +79,8 @@ class Utils:
         return os.path.join(Utils.get_project_root(), path)
 
     @staticmethod
-    def get_variable_value_from_nearest_frame(_variable_name, _default_value=False, _raise_error=True, _use_current=True, _skip_after_current=2):
+    def get_variable_value_from_nearest_frame(_variable_name, _default_value=False, _raise_error=True,
+                                              _use_current=True, _skip_after_current=2):
         """
             :param _variable_name: The Name of the variable whose value needs to be retrived.
             :param _default_value: This default value is used only in the case that there is no default value mentioned in the placeholder.
@@ -144,28 +140,34 @@ class Utils:
 
 
 class Parser:
-    def __init__(self, path=None, content=None):
+    def __init__(self, path=None, content=None, module=False, layout=False):
         """
         Wrapper for parsing a pypx to a deliverable html file.
         """
         self.raw_type = "path" if path is not None else "content"
         self.raw_origin = path if path is not None else content
         if path:
-            with open(path) as f:
+            if module:
+                _fpath = os.path.join(str(Config().module_root), path)
+            else:
+                _fpath = os.path.join(str(Config().pages_root), path)
+            with open(_fpath) as f:
                 self.content = f.read()
         else:
             self.content = content
         self.raw_content = self.content
         self.pypx_parser = Pypx(self.content, self.raw_origin)
         self.html_content = ""
-        del path, content
+        self.layout = layout
+        del path, content, module, layout
         if self.content:
+            if self.layout:
+                self.pypx_parser.load_variables()
             self.parse()
 
     def parse(self):
-        self.pypx_parser.parse()
+        self.pypx_parser.parse(self.layout)
         self.html_content = self.pypx_parser.parsed
-        # self.html_content = Pypx.load_variables(content=self.html_content)
 
     def render(self):
         self.pypx_parser.load_variables()
@@ -251,22 +253,6 @@ class Error:
             resolution = "RESOLUTION: Enter a valid line number or Check Input Content"
 
 
-class Render:
-    def __init__(self):
-        """
-        Renders Python Scripts Embeded
-        """
-        pass
-
-
-class Build:
-    def __init__(self):
-        """
-        This method is used to create production ready files
-        """
-        pass
-
-
 class FileManager:
     def __init__(self):
         """
@@ -282,7 +268,7 @@ class FileManager:
         if valid[0]:
             if valid[1]:
                 return valid[1]
-            with open(os.path.join(Utils.get_project_root(), path)) as f:
+            with open(os.path.join(str(Config().module_root), path)) as f:
                 return f.read()
         else:
             log.critical(path + " not used")
@@ -348,7 +334,7 @@ class FileManager:
             import subprocess
             try:
                 eslint = Utils.get_user_home() + "\\node_modules\\eslint\\bin\\eslint.js"
-                result = subprocess.run(["node", eslint, os.path.join(Utils.get_project_root(), path)],
+                result = subprocess.run(["node", eslint, os.path.join(str(Config().module_root), path)],
                                         capture_output=True, text=True)
                 if result.returncode == 0:
                     return [True, ""]
@@ -374,9 +360,10 @@ class FileManager:
             try:
                 stylelint = Utils.get_user_home() + "\\node_modules\\stylelint\\bin\\stylelint.mjs"
                 config = f"{Utils.get_user_home()}\\node_modules\\stylelint-config-recommended-scss\\index.js"
-                result = subprocess.run(["node", stylelint, os.path.join(Utils.get_project_root(), path), "-c", config],
-                                        capture_output=True,
-                                        text=True)
+                result = subprocess.run(
+                    ["node", stylelint, os.path.join(str(Config().module_root), path), "-c", config],
+                    capture_output=True,
+                    text=True)
                 if result.returncode == 0:
                     return [True, ""]
                 else:
@@ -402,7 +389,7 @@ class FileManager:
         @staticmethod
         def pypx(path):
             try:
-                _parser = Parser(path=path)
+                _parser = Parser(path=path, module=True)
                 _parser.parse()
                 return [True, _parser.html_content]
             except Exception as e:
@@ -462,7 +449,7 @@ class Pypx:
         self.blocks = []
         del content, fname
 
-    def parse(self):
+    def parse(self, layout=False):
         """
         imports files, parses other stuff, does not replace variables (this is because it is required to create build files)
         """
@@ -472,6 +459,26 @@ class Pypx:
         self.parse_blocks()
         self.load_blocks()
         self.normalize()
+        if not layout:
+            self.use_layout()
+
+    def use_layout(self):
+        _layout_file = os.path.join(str(Config().pages_root), "_layout.pypx")
+        if not os.path.exists(_layout_file):
+            print("NO LAYOUT FILE")
+            return
+        children = self.parsed
+        head = re.compile("<head>(.*)</head>").findall(self.parsed)
+        head = head[0] if head else ""
+        children = children.replace(f"<head>{head}</head>", "")
+        if not children:
+            log.warn("no children")
+        _ = Parser(path="_layout.pypx", layout=True)
+        log.info(_.html_content)
+        _.render()
+        if self.parsed not in _.html_content:
+            log.critical("please put {{children}} in the layout file where the page content must appear")
+        self.parsed = _.html_content
 
     def make_groups_valid(self):
         num = 0
@@ -632,14 +639,16 @@ class Pypx:
         if _load_list is None:
             _load_list = []
         for var, val in _load_list:
-            setattr(locals(), var, val)
+            locals()[val] = val
         if _load_list:
             del var, val
-        _vars_reg = re.compile("\{\{.*}}")
+        _vars_reg = re.compile(r'\{\{(.*?)}}')
         _vars = _vars_reg.findall(_content)
         for _var in _vars:
-            _ori_var = _var
-            _var = _var[2:-2].split("=", 1)
+            _ori_var = "{{"+_var+"}}"
+            _var = _var.strip(" ")
+            log.info(_var)
+            _var = _var.split("=", 1)
             if len(_var) == 2:
                 _default = _var[1]
                 _raise_error = False
@@ -647,7 +656,8 @@ class Pypx:
                 _default = False
                 _raise_error = True
             _var = _var[0]
-            _value = Utils.get_variable_value_from_nearest_frame(_variable_name=_var, _default_value=_default, _raise_error=_raise_error)
+            _value = Utils.get_variable_value_from_nearest_frame(_variable_name=_var, _default_value=_default,
+                                                                 _raise_error=_raise_error)
             _content = _content.replace(_ori_var, _value)
         if _original_content is None:
             self.parsed = _content
@@ -719,10 +729,17 @@ class Pypx:
             bgroup = file.split(".")[-1]
             if bgroup in bundles:
                 bundles[bgroup]["files"].append(group)
-                bundles[bgroup]["tohash"] += file + str(os.path.getmtime(os.path.join(Utils.get_project_root(), file)))
+                bundles[bgroup]["tohash"] += file + str(os.path.getmtime(os.path.join(str(Config().module_root), file)))
             else:
+                try:
+                    mtime = str(os.path.getmtime(os.path.join(str(Config().module_root), file)))
+                except FileNotFoundError:
+                    try:
+                        mtime = str(os.path.getmtime(file))
+                    except FileNotFoundError:
+                        mtime = ""
                 bundles[bgroup] = {"files": [group], "content": "",
-                                   "tohash": file + str(os.path.getmtime(os.path.join(Utils.get_project_root(), file))),
+                                   "tohash": file + mtime,
                                    "hash": ""}
 
         for bgroup in bundles:
@@ -734,15 +751,15 @@ class Pypx:
 
             # USE EXISTING BUNDLE IF THE FILES ARE UNMODIFIED
             if os.path.exists(
-                    os.path.join(Utils.get_project_root(), path_name + "." + bundles[bgroup]["hash"] + "." + bgroup)):
+                    os.path.join(str(Config().module_root), path_name + "." + bundles[bgroup]["hash"] + "." + bgroup)):
                 continue
 
             # REMOVE EXISTING BUNDLES WITH SAME NAME
             file_dir = os.path.dirname(
-                os.path.join(Utils.get_project_root(), path_name + "." + bundles[bgroup]["hash"] + "." + bgroup))
+                os.path.join(str(Config().module_root), path_name + "." + bundles[bgroup]["hash"] + "." + bgroup))
             for file in os.listdir(file_dir):
                 file = os.path.join(file_dir, file)
-                startwith = str(os.path.join(Utils.get_project_root(), path_name)) + "."
+                startwith = str(os.path.join(str(Config().module_root), path_name)) + "."
                 endwith = "." + bgroup
                 if os.path.isfile(file) and file.startswith(startwith) and file.endswith(endwith):
                     os.remove(file)
@@ -766,16 +783,16 @@ class Pypx:
                 cont = self.load_variables(_content=cont, _load_list=parms)
                 bundles[bgroup]["content"] += cont
         for bgroup in bundles:
-            with open(os.path.join(Utils.get_project_root(), path_name + "." + bundles[bgroup]["hash"] + "." + bgroup),
+            with open(os.path.join(str(Config().module_root), path_name + "." + bundles[bgroup]["hash"] + "." + bgroup),
                       "wt") as f:
                 f.write(bundles[bgroup]["content"])
             while len(bundles[bgroup]["files"]) > 1:
                 popped = bundles[bgroup]["files"].pop(0)
                 content = content.replace(popped, "")
             popped = bundles[bgroup]["files"].pop(0)
-            f_url = (path_name + "." + bundles[bgroup]["hash"] + "." + bgroup)[1::].replace("\\","/")
+            f_url = (path_name + "." + bundles[bgroup]["hash"] + "." + bgroup)[1::].replace("\\", "/")
             content = content.replace(popped, f_url)
-            elapsed_time = datetime.datetime.now()-start
+            elapsed_time = datetime.datetime.now() - start
             if elapsed_time > datetime.timedelta(seconds=1):
                 print(f'CREATED BUNDLE : {f_url}\nIN: {elapsed_time}')
         if oric is None:
@@ -795,4 +812,20 @@ class Markdown:
 
 class App:
     def __init__(self):
-        pass
+        for _ in range(10):
+            log.critical("THIS FEATURE IS NOT IMPLEMENTED DO NOT USE THIS")
+        from fastapi import FastAPI, HTTPException, status
+        import uvicorn
+        self.app = FastAPI()
+        self.add_routes()
+        self.not_authorized = HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                                            detail="You are not authorized to access this file")
+        uvicorn.run(self.app, )
+
+    def add_routes(self):
+        @self.app.get("/{path:path}")
+        async def serve_pages(path: str = ""):
+            if path == "":
+                path += "index"
+            if path.startswith("_"):
+                raise self.not_authorized

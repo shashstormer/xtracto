@@ -4,14 +4,14 @@ with open("readme.md", "r") as fh:
 
 setup(
     name='xtracto',
-    version='0.0.1',
+    version='0.0.3',
     author='shashstormer',
     description='Xtracto is a lightweight web development framework designed to simplify the process of creating dynamic web pages using Python and pypx. ',
     long_description=long_description,
     long_description_content_type="text/markdown",
     packages=find_packages(),
     install_requires=[
-        "fastapi", "uvicorn", "beautifulsoup4"
+        "fastapi", "uvicorn", "beautifulsoup4", "requestez"
     ],
     classifiers=[
         'Development Status :: 4 - Beta',
