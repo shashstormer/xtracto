@@ -43,8 +43,8 @@ html
         
         but it is not impossible to include comments into the hmtl
         
-        to include comments into the html you can use ?:inclusive comment?: so now if you see the rendered content you will be able to see the content between ?&colon;...?&colon; is included into the html as a comment.
-        
+        :: to include comments into the html you can use ?:inclusive comment?: so now if you see the rendered content you will be able to see the content between ?&colon;...?&colon; is included into the html as a comment. (functionality changed)::
+         ?:home.css ::this will include the home.css into the page (new functionality)::?:        
         <footer>you may also use html elements directly but they must end within a single line and you need to close them yourself.</footer>
 ```
 
@@ -71,11 +71,11 @@ html
         :: you can include your favicon here::
         {headcontent=} ::this is parsed automatically from the page (can be absent in the page)::
     body
-        {preheader=} ::this is parsed automatically from the page (can be absent in the page)::
+        :: {preheader=} (feature removed):: ::this is parsed automatically from the page (can be absent in the page)::
         [header.pypx] ::if you want to define a header compont and use for all your pages you can do this::
         {children} ::this is parsed automatically from the page layout and it is necessary that atleast one element is present in the page::
         [footer.pypx] ::if you want to define a footer compont and use for all your pages you can do this::
-        {postfooter=} ::this is parsed automatically from the page (can be absent in the page)::
+        :: {postfooter=} (feature removed):: ::this is parsed automatically from the page (can be absent in the page)::
         
 :: you can skip this by passing render_layout=False while initializing parser::
 ```
@@ -93,7 +93,7 @@ Lines starting with `<` will not be edited (pypx comments will be parsed tho i.e
 | []     |                                                  imports and embeds the file content from components directory into the generated file                                                   |       [filename(.extension)]       |
 | {}     | this checks all scopes for the variable name (spefied before =) if present uses value of that else uses default value provided (when deefault value is not provided it raises NameError) |   {variable_name(=defaultvalue)}   |
 | ::     |                                                                     pypx comment which will be removed after parsing                                                                     |       :: comment content ::        |
-| ?:     |                                                            pypx comment which will be converted to html comment after parsing                                                            |       ?: comment content ?:        |
+| ?:     |                                                     a file which will be included as an asset (mainly useful when using app router)                                                      |           ?: home.css ?:           |
 | ;...;  |                                                                 this method is used to specify attributes for an element                                                                 | ;attribute_name="attribute_value"; |
 | #      |                                                                this method is used to escape characters in the pypx file                                                                 |             #{# or #:#             |
 | #&n#   |                                                         this is a escape sequence to create a new line in the generated content                                                          |                #&n#                |
