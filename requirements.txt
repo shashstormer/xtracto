@@ -4,3 +4,4 @@ beautifulsoup4~=4.12.2
 setuptools~=68.2.2
 requestez==0.1.4
 markdown2[all]~=2.4.12
+pytailwind

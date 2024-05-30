@@ -1,17 +1,17 @@
-from setuptools import setup, find_packages
+from setuptools import setup
 with open("readme.md", "r") as fh:
     long_description = fh.read()
 
 setup(
     name='xtracto',
-    version='0.0.4',
+    version='0.0.5',
     author='shashstormer',
     description='Xtracto is a lightweight web development framework designed to simplify the process of creating dynamic web pages using Python and pypx. ',
     long_description=long_description,
     long_description_content_type="text/markdown",
-    packages=find_packages(),
+    packages=['xtracto'],
     install_requires=[
-        "fastapi", "uvicorn", "beautifulsoup4", "requestez"
+        "fastapi", "uvicorn", "beautifulsoup4", "requestez", "pytailwind",
     ],
     classifiers=[
         'Development Status :: 4 - Beta',

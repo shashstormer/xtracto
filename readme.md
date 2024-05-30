@@ -24,6 +24,11 @@ pip install xtracto
 ```
 
 
+## Sample project
+
+you can view a sample project at [shashstormer/xtracto_website](https://github.com/shashstormer/xtracto_website)
+And its deployed version at [xtracto.shashstom.in](https://xtracto.shashstorm.in/)
+
 ### Usage
 
 #### 1. Parser Class

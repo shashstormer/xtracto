@@ -88,15 +88,16 @@ Lines without any attributes or children will be converted into plain text.
 
 Lines starting with `<` will not be edited (pypx comments will be parsed tho i.e., removed / converted to html comments). 
 
-| symbol |                                                                                       description                                                                                        |               usage                |
-|:-------|:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|:----------------------------------:|
-| []     |                                                  imports and embeds the file content from components directory into the generated file                                                   |       [filename(.extension)]       |
-| {}     | this checks all scopes for the variable name (spefied before =) if present uses value of that else uses default value provided (when deefault value is not provided it raises NameError) |   {variable_name(=defaultvalue)}   |
-| ::     |                                                                     pypx comment which will be removed after parsing                                                                     |       :: comment content ::        |
-| ?:     |                                                     a file which will be included as an asset (mainly useful when using app router)                                                      |           ?: home.css ?:           |
-| ;...;  |                                                                 this method is used to specify attributes for an element                                                                 | ;attribute_name="attribute_value"; |
-| #      |                                                                this method is used to escape characters in the pypx file                                                                 |             #{# or #:#             |
-| #&n#   |                                                         this is a escape sequence to create a new line in the generated content                                                          |                #&n#                |
+| symbol  |                                                                                       description                                                                                        |               usage                |
+|:--------|:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|:----------------------------------:|
+| []      |                                                  imports and embeds the file content from components directory into the generated file                                                   |       [filename(.extension)]       |
+| {}      | this checks all scopes for the variable name (spefied before =) if present uses value of that else uses default value provided (when deefault value is not provided it raises NameError) |   {variable_name(=defaultvalue)}   |
+| ::      |                                                                     pypx comment which will be removed after parsing                                                                     |       :: comment content ::        |
+| ?:      |                                                     a file which will be included as an asset (mainly useful when using app router)                                                      |           ?: home.css ?:           |
+| ;...;   |                                                                 this method is used to specify attributes for an element                                                                 | ;attribute_name="attribute_value"; |
+| #       |                                                                this method is used to escape characters in the pypx file                                                                 |             #{# or #:#             |
+| #&n#    |                                                         this is a escape sequence to create a new line in the generated content                                                          |                #&n#                |
+| +$...$+ |                                                             this will load a python variable into the context of the render                                                              |      +$test_var=test_value$+       |
 
 to include `{` symbol within the pypx file use `#{#`
 
