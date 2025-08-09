@@ -1,5 +1,0 @@
-html
-            [{validjs.js}]
-            [{valid.css}]
-            script
-                ;;src=[{validjs2.js}];;

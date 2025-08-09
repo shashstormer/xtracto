@@ -1,15 +1,19 @@
 """
 A web framework for integration with pypx
 """
-__version__ = "0.0.6"
+from __future__ import annotations
+
+__version__ = "0.0.7"
 __author__ = "shashstormer"
 __description__ = "A web framework for integration with pypx"
 
 import os
 import re
 from fastapi import FastAPI, HTTPException, status, Response, Request
+from typing import List
 from fastapi.responses import FileResponse
 from pytailwind import Tailwind
+import mimetypes
 
 MAXIMUM_DEPTH_PROJECT_ROOT = 100
 
@@ -160,6 +164,10 @@ class Utils:
         """
         return os.path.exists(os.path.join(Config().project_root, "_layout.pypx"))
 
+    @staticmethod
+    def page_exists(page):
+        return os.path.exists(os.path.join(Config().pages_root, page))
+
 
 class Parser:
     def __init__(self, path=None, content=None, module=False, layout=False, _additional_contexts=None):
@@ -254,10 +262,12 @@ class Config:
             self.module_root = os.getcwd()
             self.pages_root = os.getcwd()
         self.production = getattr(config, 'production', os.getenv("env", "prod").startswith("dev"))
+        self.app_start_path = getattr(config, 'app_start_path', "/")
         self.strip_imports = getattr(config, 'strip_imports', True)
         self.debug = getattr(config, 'debug', os.getenv("env", "prod").startswith("dev"))
         self.log_level = "debug" if self.debug else getattr(config, 'log_level', "info")
         self.raise_value_errors_while_importing = getattr(config, 'raise_value_errors_while_importing', True)
+
         del config
 
 
@@ -341,8 +351,12 @@ class FileManager:
             if valid[1]:
                 return valid[1]
             if os.path.exists(path):
-                with open(path) as f:
-                    return f.read()
+                try:
+                    with open(path) as f:
+                        return f.read()
+                except Exception as e:
+                    log.error(e, f"path = {path}")
+                    return ""
             else:
                 log.critical(path, "NOT FOUND")
                 return ""
@@ -580,8 +594,8 @@ class Pypx:
         _self = Parser(path="_layout.pypx", layout=True, _additional_contexts=_contexts)
         _self.render()
         self.static_requirements.update(_self.static_requirements)
-        if self.parsed not in _self.html_content:
-            log.critical("please put {{children}} in the layout file where the page content must appear")
+        if children not in _self.html_content:
+            log.warn("please put {{children}} in the layout file where the page content must appear (if you have already put it please ignore this warning)")
         self.parsed = _self.html_content
 
     def make_groups_valid(self):
@@ -687,7 +701,8 @@ class Pypx:
                                     if self.content[num + forward].lstrip(" ").lower().startswith(
                                             _block_orignal[2][0][1].lower()):
                                         pred_line = num + forward
-                        log.warn(f"\n{self.fname}:{pred_line} -> element \"" + block[
+                        _backslash = "\\"
+                        log.warn(f"\n{self.fname.replace(f'{_backslash}./', '/').replace('/', f'{_backslash}')}:{pred_line} -> element \"" + block[
                             1] + "\" must have children elements/content this has been considered as an element as it has attributes but it is recomended that you add content")
                         # SECTION FOR WARNING WHEN ELEMENT DOES NOT HAVE CHILDREN ENDS HERE
                     if child[1].startswith(";;"):
@@ -810,8 +825,8 @@ class Pypx:
         fixed.make_groups_valid()
         fixed = "\n".join(fixed.parsing)
         file_groups = re.compile("(\[\[.*?]])")
-        files = re.compile(r"\[\[([a-zA-Z0-9. /\\]+)(?:.*?)?]]")
-        parameters = re.compile("\[\[[a-zA-Z0-9.]+\|\|(.*?)\|\|.*?")
+        files = re.compile(r"\[\[([a-zA-Z0-9. _/\\]+)(?:.*?)?]]")
+        parameters = re.compile("\|\|(.*?)\|\|")
         for group in file_groups.findall(fixed):
             file = files.findall(group)
             file = file[0]
@@ -819,14 +834,14 @@ class Pypx:
             final_parms = []
             while parms:
                 param = parms.pop()
-                if len(param.split("||")) > 1:
-                    final_parms.extend(param.split("||"))
+                if len(param.strip("#&N#").strip(" ").strip("#&N#").strip(" ").split("#&N#")) > 1:
+                    final_parms.extend(param.strip("#&N#").strip(" ").strip("#&N#").strip(" ").split("#&N#"))
                     continue
                 final_parms.append(param)
             parms = [i.replace("#|#", "|") for i in final_parms]
             for num, param in enumerate(parms.copy()):
                 parms[num] = param.strip("#&N#").strip(" ").strip("#&N#").strip(" ")
-            parms = [i.split("=") for i in parms]  # [[key, value]...]
+            parms = [i.split("=", 1) for i in parms]
             cont = FileManager.get_file_if_valid(file)
             if isinstance(cont, Parser):
                 self.contexts.extend(cont.contexts)
@@ -964,19 +979,41 @@ class Markdown:
 
 
 class App:
-    def __init__(self, app: FastAPI, auto_run=True, uvicorn_kwargs=None):
-        for _ in range(1):
-            log.warn("THIS FEATURE IS NOT IMPLEMENTED COMPLETELY")
+    def __init__(self, app: FastAPI, auto_run=True, uvicorn_kwargs=None, static_dir: str | List[str] = None):
         self.app = app
         self.add_routes()
         self.not_authorized = HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                                             detail="You are not authorized to access this file")
         self.static_assets = {}
+        self.static_dir_s = static_dir
+        self.update_static_assets()
         if uvicorn_kwargs is None:
             uvicorn_kwargs = {}
+
         if auto_run:
             import uvicorn
             uvicorn.run(self.app, **uvicorn_kwargs)
+
+    def update_static_assets(self):
+        if self.static_dir_s:
+            if isinstance(self.static_dir_s, str):
+                self.add_static_assets("", self.static_dir_s)
+            if isinstance(self.static_dir_s, list):
+                for static_folder in self.static_dir_s:
+                    self.add_static_assets("", static_folder)
+
+    def add_static_assets(self, base_path, dir_name):
+        if base_path:
+            dir_path = os.path.join(base_path,dir_name)
+        else:
+            dir_path = dir_name
+        for item in os.listdir(dir_path):
+            path = str(os.path.join(dir_path,item))
+            path = path.replace("//", "/").replace("\\/", '/').replace("\\", '/')
+            if os.path.isfile(path):
+                self.static_assets[path[2:]] = path
+            else:
+                self.add_static_assets(dir_path, item)
 
     def add_routes(self):
         @self.app.middleware("*")
@@ -990,12 +1027,14 @@ class App:
             file_path = self.static_assets.get(path, False)
             if not file_path:
                 raise self.not_authorized
-            with open(file_path, "rb") as f:
-                file_content = f.read()
-            return Response(file_content)
+            if not os.path.exists(file_path):
+                return Response("", 404)
+            return FileResponse(file_path)
 
-        @self.app.get("/{path:path}")
+        @self.app.get(Config().app_start_path + "{path:path}")
         async def serve_pages(path: str = ""):
+            if path.startswith("_"):
+                return Response("", 403)
             if path == "":
                 path += "index"
             _pypx_c1 = "../" in path
@@ -1006,15 +1045,26 @@ class App:
                 raise self.not_authorized
             if len(path.split("/")[-1].split(".")) == 1:
                 path += ".pypx"
+            if path.split(".")[-1] not in ["html", "pypx"]:
+                raise self.not_authorized
+            if not Utils.page_exists(path):
+                if Utils.page_exists("_not_found.pypx"):
+                    path = "_not_found.pypx"
+                else:
+                    return Response("", 404)
             if path == "favicon.ico":
                 if os.path.exists(Utils.get_project_root() + "/favicon.ico"):
                     return FileResponse(Utils.get_project_root() + "/favicon.ico")
                 else:
                     import xtracto._images
                     return xtracto._images.favicon
-            _pypx_parsed = Parser(path=path, layout=Utils.layout_exists())
+            _pypx_parsed = Parser(path=path)
             _pypx_parsed.render()
             _pypx_parsed.load_tailwind()
             _pypx_parsed.clear_variables()
             self.static_assets.update(_pypx_parsed.static_requirements)
+            if path == "_not_found.pypx":
+                status_code = 404
+            else:
+                status_code = 200
             return Response(_pypx_parsed.html_content, media_type="text/html")
