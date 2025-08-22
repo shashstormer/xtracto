@@ -1,3 +1,5 @@
+## Note: 
+As i was thinking of possibilities there is a huge security flaw in this logic if you render user input on server side as it allows possiblility for variable name injection, if anyone wants to fix feel free to do so as i wont be doing it anytime soon, everything is fine as long as you dont render unsanitized user input on server side
 
 # Xtracto Web Development Framework
 eXtensible, Configurable, and Reusable Automation Component Tool and Organizer <sub>for html through pypx</sub>
