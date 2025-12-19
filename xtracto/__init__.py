@@ -10,7 +10,7 @@ import os
 import re
 from typing import List, Dict, Any
 from pytailwind import Tailwind
-from jinja2 import Template
+from jinja2 import Template, Environment
 
 MAXIMUM_DEPTH_PROJECT_ROOT = 10
 
@@ -30,20 +30,12 @@ class Utils:
     @staticmethod
     def get_project_root():
         current_script = os.getcwd()
-        ic = 0
-        while current_script:
-            if os.path.exists(os.path.join(current_script, 'xtracto.config.py')):
-                break
-            ic += 1
-            current_script = os.path.dirname(current_script)
-            if ic > MAXIMUM_DEPTH_PROJECT_ROOT:
-                Log.critical(Error.ProjectConfig.message, "")
-                if Config("").debug:
-                    Log.debug(Error.ProjectConfig.resolution)
-                current_script = False
-        else:
-            raise Error.ProjectConfig.error
-        return current_script
+        if os.path.exists(os.path.join(current_script, 'xtracto.config.py')):
+            return current_script
+        Log.critical(Error.ProjectConfig.message, "")
+        if Config("").debug:
+            Log.debug(Error.ProjectConfig.resolution)
+        raise Error.ProjectConfig.error
 
     @staticmethod
     def get_config_file():
@@ -91,67 +83,49 @@ class Parser:
         self.layout = layout
         self.html_content = ""
         self.static_requirements = {}
-
-        # If in production and not a module/layout, try to load from build
-        # We also need to check if the file exists in build directory
-        # path is relative e.g. "index.pypx" -> build/index.html
         if path and not module and not layout and self.config.production:
             build_path = os.path.join(str(self.config.build_dir), os.path.splitext(path)[0] + ".html")
             if os.path.exists(build_path):
                 with open(build_path) as f:
                     self.template_string = f.read()
                 return
-
-        # Normal Parsing logic
         if path:
             if module:
                 _fpath = os.path.join(str(self.config.module_root), path)
                 layout = True
             else:
                 _fpath = os.path.join(str(self.config.pages_root), path)
-
-            # If explicit path parsing fails (file not found), we might raise error or handle it
             with open(_fpath) as f:
                 self.content = f.read()
         else:
             self.content = content
-
         self.pypx_parser = Pypx(self.content, self.raw_origin)
         self.parse()
 
     def parse(self):
-        # First parse the structure (indentation -> html)
         self.pypx_parser.parse(self.layout)
-
-        # Handle imports and embedding
         self.pypx_parser.do_imports()
-
         if not self.module:
             self.static_requirements.update(self.pypx_parser.static_requirements)
-
-        # Resulting string is a Jinja2 template
         self.template_string = self.pypx_parser.parsed
 
     def render(self, context: Dict[str, Any] = None):
         if context is None:
             context = {}
-
         try:
-            template = Template(self.template_string)
+            env = Environment(autoescape=True)
+            template = env.from_string(self.template_string)
             self.html_content = template.render(**context)
         except Exception as e:
             Log.error(f"Jinja2 Rendering Error: {e}")
             self.html_content = self.template_string
-
-        # Reparse tailwind if configured (e.g. for dynamic classes)
         if self.config.reparse_tailwind:
             self.load_tailwind()
 
     def clear_variables(self):
-        pass # Jinja2 handles this
+        pass
 
     def load_tailwind(self):
-        # If we need to run tailwind on the rendered content
         _tailwind = Tailwind()
         _generated = _tailwind.generate(self.html_content)
         if _generated:
@@ -181,7 +155,6 @@ class Config:
         self.raise_value_errors_while_importing = getattr(config, 'raise_value_errors_while_importing', True)
         self.build_dir = Utils.root_path(getattr(config, "build_dir", "build"))
         self.reparse_tailwind = getattr(config, 'reparse_tailwind', False)
-
         del config
 
 
@@ -196,40 +169,26 @@ class Builder:
         """
         pages_root = self.config.pages_root
         build_root = self.config.build_dir
-
         if not os.path.exists(build_root):
             os.makedirs(build_root)
-
         for root, dirs, files in os.walk(pages_root):
-            # Mirror directory structure
             rel_root = os.path.relpath(root, pages_root)
             target_root = os.path.join(build_root, rel_root)
             if not os.path.exists(target_root):
                 os.makedirs(target_root)
-
             for file in files:
                 if file.endswith(".pypx") and not file.startswith("_"):
                     source_path = os.path.join(root, file)
                     rel_path = os.path.relpath(source_path, pages_root)
-
-                    # Parse using Parser to get the Jinja2 template string
-                    # We pass path as relative path from pages_root because Parser expects that
                     parser = Parser(path=rel_path)
-
-                    # The parser.template_string contains the Jinja2 template (with imports and layout resolved)
-                    # We run tailwind on this template string to generate CSS for static classes
                     tailwind = Tailwind()
                     final_content = tailwind.generate(parser.template_string)
                     if not final_content:
                         final_content = parser.template_string
-
-                    # Save to build dir with .html extension (or .pypx? let's stick to .html as it's ready to render)
                     target_file = os.path.splitext(file)[0] + ".html"
                     target_path = os.path.join(target_root, target_file)
-
                     with open(target_path, "w") as f:
                         f.write(final_content)
-
                     log.info(f"Built: {rel_path} -> {os.path.relpath(target_path, build_root)}")
 
 
@@ -297,28 +256,26 @@ class FileManager:
 
     @staticmethod
     def get_file_if_valid(path):
-        # Determine file type
         _, file_extension = os.path.splitext(path)
         file_type = file_extension[1:]
-
-        # Check if file exists
-        full_path = os.path.join(str(Config().module_root), path)
+        module_root = os.path.abspath(str(Config().module_root))
+        full_path = os.path.abspath(os.path.join(module_root, path))
+        try:
+            if os.path.commonpath([module_root, full_path]) != module_root:
+                log.critical(full_path, "PATH TRAVERSAL ATTEMPT")
+                return ""
+        except ValueError:
+            log.critical(full_path, "PATH TRAVERSAL ATTEMPT (Different Drives)")
+            return ""
         if not os.path.exists(full_path):
             log.critical(full_path, "NOT FOUND")
             return ""
-
-        # Handle pypx files
         if file_type == "pypx":
             try:
-                # Parser expects relative path if module=True, or we can adjust it.
-                # Since we are passing module=True, it expects path relative to module_root.
-                # 'path' arg here is already relative (e.g. 'component.pypx').
                 return Parser(path=path, module=True)
             except Exception as e:
                 log.error(e, f"Error parsing pypx file: {path}")
                 return ""
-
-        # Handle other files
         try:
             with open(full_path) as f:
                 return f.read()
@@ -331,15 +288,15 @@ class Pypx:
     def __init__(self, content=None, fname=None):
         if content is None:
             content = ""
-        content = content.replace("\t", " " * 4)
+        content = content.expandtabs(4)
         self.content = content.split("\n")
         self.fname = fname
         self.parsing = self.content.copy()
         self.groups = [
-            ["::", "::"],  # Comment
-            ["{{", "}}"],  # Variable Field
-            [";;", ";;"],  # HTML Attribute
-            ["[[", "]]"],  # Import Files
+            ["::", "::"],
+            ["{{", "}}"],
+            [";;", ";;"],
+            ["[[", "]]"],
         ]
         self.void_elements = [
             "area",
@@ -377,58 +334,34 @@ class Pypx:
 
     def parse(self, layout=False):
         self.make_groups_valid()
-        # Bundling removed/disabled to focus on Jinja migration, or kept as is if independent
         self.parse_comments()
         self.parse_blocks()
         self.load_blocks()
-        self.normalize() # This sets self.parsed
-
-        # Convert variable syntax to Jinja2
+        self.normalize()
         self.convert_variables_to_jinja()
-
         if not layout:
             self.use_layout()
 
     def convert_variables_to_jinja(self):
-        # Convert {{var=default}} to {{ var | default('default') }}
-        # The regex looks for {{ var=val }}
-        # pypx uses {{ }} for variables.
         def replace_default(match):
             var = match.group(1).strip()
             default = match.group(2).strip()
             return f"{{{{ {var} | default('{default}') }}}}"
 
         self.parsed = re.sub(r'\{\{\s*([^=}]+?)\s*=\s*(.*?)\s*\}\}', replace_default, self.parsed)
-        # Ensure standard {{ var }} remains as is (which it does)
-        # Also clean up pypx specific things if needed.
 
     def use_layout(self):
         _layout_file = os.path.join(str(Config().pages_root), "_layout.pypx")
         if not os.path.exists(_layout_file):
             return
-
-        # We need to process the layout separately and inject content
-        # But we need to delay full rendering
-
-        # Process layout structure
         _self = Parser(path="_layout.pypx", layout=True)
-        # _self.template_string contains the layout template with {{children}} (or similar)
-
-        # Replace {{children}} (or {children}) with current page content
-        # Note: if the layout uses {{children}}, it's a Jinja variable.
-        # But we want to inject the TEMPLATE CODE of the child, not render it yet.
-        # So we replace {{children}} string in the layout template with self.parsed
-
         layout_tpl = _self.template_string
-
-        # Try to find {{children}} or {children}
         if "{{children}}" in layout_tpl:
             self.parsed = layout_tpl.replace("{{children}}", self.parsed)
         elif "{children}" in layout_tpl:
             self.parsed = layout_tpl.replace("{children}", self.parsed)
         else:
-             log.warn("Layout file does not contain {{children}} placeholder")
-
+            log.warn("Layout file does not contain {{children}} placeholder")
         self.static_requirements.update(_self.static_requirements)
 
     def make_groups_valid(self):
@@ -436,19 +369,20 @@ class Pypx:
         while num < len(self.parsing):
             line = self.parsing[num]
             for value1, value2 in self.groups:
-                while ((
-                               (line.count(value1) != line.count(value2)) and (value1 != value2)
-                       )
-                       or (
-                               (line.count(value1) % 2 != 0) and (value1 == value2)
-                       )):
-                    try:
-                        self.parsing[num] += "#&N#" + self.parsing[num + 1]
-                        self.parsing.pop(num + 1)
-                        line = self.parsing[num]
-                    except IndexError:
+                while True:
+                    if value1 == value2:
+                        is_unbalanced = (line.count(value1) % 2 != 0)
+                    else:
+                        is_unbalanced = (line.count(value1) != line.count(value2))
+                    if not is_unbalanced:
+                        break
+                    if num + 1 >= len(self.parsing):
+                        log.error(f"Syntax Error: Unbalanced '{value1}' starting at line {num + 1}")
                         self.parsed = []
                         return
+                    self.parsing[num] += "#&N#" + self.parsing[num + 1]
+                    self.parsing.pop(num + 1)
+                    line = self.parsing[num]
             num += 1
 
     def parse_comments(self):
@@ -524,44 +458,34 @@ class Pypx:
         return loaded_block
 
     def do_imports(self, content=None):
-        # Recursively handle [[...]]
         ori_cont = content
         if content is None:
             content = self.parsed
-
-        # Regex to match [[ filename || params ]]
         regex = re.compile(r"\[\[\s*([a-zA-Z0-9. _/\\-]+)\s*(?:\|\|\s*(.*?))?\s*\]\]")
 
         def replace_import(match):
             filename = match.group(1).strip()
             params_str = match.group(2)
-
-            # Load file content
             cont = FileManager.get_file_if_valid(filename)
-
-            # Check for recursion/Parser object
             if isinstance(cont, Parser):
                 self.static_requirements.update(cont.static_requirements)
                 file_content = cont.template_string
             else:
                 file_content = str(cont)
-
-            # If params exist, wrap in {% with %}
             if params_str:
                 return f"{{% with {params_str} %}}{file_content}{{% endwith %}}"
-
             return file_content
 
-        # Repeatedly apply until no matches
         old_content = ""
+        loops = 0
+        MAX_LOOPS = 100
         while old_content != content:
+            if loops > MAX_LOOPS:
+                log.error("Circular dependency or too deep recursion detected in imports")
+                break
+            loops += 1
             old_content = content
             content = regex.sub(replace_import, content)
-
         if ori_cont is None:
             self.parsed = content
         return content
-
-
-
-
