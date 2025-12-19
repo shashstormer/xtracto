@@ -103,15 +103,8 @@ class TestVulnerabilities(unittest.TestCase):
         # Unbalanced groups at EOF
         content = "{{ start"
         pypx = Pypx(content=content)
-
-        # Should not crash and handle gracefully (return empty or parsed so far)
-        # Current implementation sets self.parsed = [] on error
-        try:
+        with self.assertRaises(SyntaxError):
             pypx.make_groups_valid()
-        except Exception as e:
-            self.fail(f"make_groups_valid crashed: {e}")
-
-        self.assertEqual(pypx.parsed, [], "Should return empty parsed on syntax error")
 
     def test_indentation_fix(self):
         # Test expandtabs

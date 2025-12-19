@@ -289,6 +289,7 @@ class Pypx:
         if content is None:
             content = ""
         content = content.expandtabs(4)
+        content = content.replace("\t", "    ")
         self.content = content.split("\n")
         self.fname = fname
         self.parsing = self.content.copy()
@@ -377,9 +378,10 @@ class Pypx:
                     if not is_unbalanced:
                         break
                     if num + 1 >= len(self.parsing):
-                        log.error(f"Syntax Error: Unbalanced '{value1}' starting at line {num + 1}")
-                        self.parsed = []
-                        return
+                        raise SyntaxError(f"Unbalanced '{value1}' starting at line {num + 1} in file {self.fname}")
+                        # log.error(f"Syntax Error: Unbalanced '{value1}' starting at line {num + 1}")
+                        # self.parsed = []
+                        # return
                     self.parsing[num] += "#&N#" + self.parsing[num + 1]
                     self.parsing.pop(num + 1)
                     line = self.parsing[num]
