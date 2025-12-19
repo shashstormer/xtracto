@@ -1,35 +1,32 @@
-## Note: 
-As i was thinking of possibilities there is a huge security flaw in this logic if you render user input on server side as it allows possiblility for variable name injection, if anyone wants to fix feel free to do so as i wont be doing it anytime soon, everything is fine as long as you dont render unsanitized user input on server side
-
 # Xtracto Web Development Framework
 eXtensible, Configurable, and Reusable Automation Component Tool and Organizer <sub>for html through pypx</sub>
 
-
-Xtracto is a lightweight web development framework designed to simplify the process of creating dynamic web pages using Python.
+Xtracto is a lightweight web development framework designed to simplify the process of creating dynamic web pages using Python. It uses a custom markup language called `pypx` (Python Page eXtension) that compiles to HTML with Jinja2 templating support.
 
 > **This module is a parser for pypx (custom markup language) to html**
 > ****
-> **read [pypx.md](https://github.com/shashstormer/xtracto/blob/master/xtracto/pypx.md) to understand the custom markup language**
+> **read [pypx.md](xtracto/pypx.md) to understand the custom markup language**
 
 ## Features
 
-- **Parser Class:** Easily parse and transform content using the `Parser` class.
-- **Automatic Server Setup:** Use the `App` class for hassle-free server setup with FastAPI and Uvicorn.
-- **Testing Support:** Conduct tests on your content or files using the `Tests` class.
+- **Parser Class:** Easily parse and transform `pypx` content using the `Parser` class.
+- **Component System:** Build reusable components and import them into your pages.
+- **Layout Support:** Define layouts to wrap your pages with consistent headers, footers, etc.
+- **Jinja2 Integration:** Use Jinja2 syntax for variables, loops, and logic.
+- **Tailwind CSS Support:** Automatically generates Tailwind CSS based on your usage.
+- **Build System:** Pre-render your pages to HTML for production.
 
-> **It is recommended that you use python 3.9 (as of 3rd january 2024) for best compatibility**
+> **It is recommended that you use python 3.9+ for best compatibility**
 
 ## Installation
 
-```cmd
+```bash
 pip install xtracto
 ```
 
-
 ## Sample project
 
-you can view a sample project at [shashstormer/xtracto_website](https://github.com/shashstormer/xtracto_website)
-And its deployed version at [xtracto.shashstom.in](https://xtracto.shashstorm.in/)
+You can view a sample project at [shashstormer/xtracto_website](https://github.com/shashstormer/xtracto_website).
 
 ### Usage
 
@@ -37,58 +34,48 @@ And its deployed version at [xtracto.shashstom.in](https://xtracto.shashstorm.in
 
 Initialize the `Parser` class with the content or file path:
 
-
 #### Example with content
 ```python
 from xtracto import Parser
-content = "Your content here"
+content = "html\n    body\n        h1\n            Hello World"
 parser = Parser(content=content)
+parser.render()
+print(parser.html_content)
 ```
-
 
 #### Example with a file path
 ```python
 from xtracto import Parser
-file_path = "path/to/your/file.pypx"
-parser = Parser(path=file_path)
+# Assuming you have configured xtracto.config.py
+parser = Parser(path="index.pypx")
+parser.render()
+print(parser.html_content)
 ```
 
-#### 2. Automatic Server Setup
+#### 2. Building for Production
 
-Use the `App` class for automatic server setup:
+Use the `Builder` class to compile all your pages to HTML:
 
 ```python
-from xtracto import App
-app = App()
+from xtracto import Builder
+builder = Builder()
+builder.build()
 ```
-
-#### 3. Compilation
-
-Compile non-dynamic pages to HTML:
-
-
-#### Example
-```python
-from xtracto import Parser
-parser = Parser()
-parser.compile(start_path_for_map="/")
-```
-
 
 ## Configuration
 
-
-project root is determined using the presence of `xtracto.config.py` it must be present otherwise will raise error.
+The project root is determined by the presence of `xtracto.config.py`. It must be present in your project root directory.
 
 Paths in the pypx files are relative to the project root.
 
-Paths in the config file are relative to the project root.
+Customize project-specific configurations in the `xtracto.config.py` file:
 
-The config file can be empty.
-
-Customize project-specific configurations in the `xtracto.config.py` file. Update the following parameters:
-
-- `modules_dir`: Directory for modules (default: "xtractocomponents").
-- `pages_dir`: Directory for pages (default: "xtractopages").
-- `strip_imports`: Whether to strip imports (default: True).
-- `raise_value_errors_while_importing`: Whether to raise value errors during imports (default: True).
+```python
+# xtracto.config.py
+modules_dir = "xtractocomponents" # Directory for reusable components
+pages_dir = "xtractopages"       # Directory for your pages
+build_dir = "build"              # Directory for built HTML files
+log_level = "info"               # Logging level
+reparse_tailwind = False         # Whether to regenerate Tailwind CSS on render
+production = False               # Production mode flag
+```
