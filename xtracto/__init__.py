@@ -8,9 +8,10 @@ __description__ = "A web framework for integration with pypx"
 
 import os
 import re
-from typing import List, Dict, Any
+from typing import Dict, Any
+
+from jinja2 import Environment
 from pytailwind import Tailwind
-from jinja2 import Template, Environment
 
 MAXIMUM_DEPTH_PROJECT_ROOT = 10
 
@@ -128,8 +129,9 @@ class Parser:
     def load_tailwind(self):
         _tailwind = Tailwind()
         _generated = _tailwind.generate(self.html_content)
-        if _generated:
-            self.html_content = _generated
+        if _generated and not "{{generated_tailwind}}" in self.html_content:
+            Log.warn("Tailwind generated but no \"{{generated_tailwind}}\" placeholder found in template.")
+        self.html_content = self.html_content.replace("{{generated_tailwind}}", _generated)
 
 
 class Config:
@@ -182,9 +184,8 @@ class Builder:
                     rel_path = os.path.relpath(source_path, pages_root)
                     parser = Parser(path=rel_path)
                     tailwind = Tailwind()
-                    final_content = tailwind.generate(parser.template_string)
-                    if not final_content:
-                        final_content = parser.template_string
+                    generated_tailwind = tailwind.generate(parser.template_string)
+                    final_content = parser.template_string.replace("{{generated_tailwind}}", generated_tailwind)
                     target_file = os.path.splitext(file)[0] + ".html"
                     target_path = os.path.join(target_root, target_file)
                     with open(target_path, "w") as f:
