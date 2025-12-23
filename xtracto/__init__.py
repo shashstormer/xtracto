@@ -161,16 +161,29 @@ class Parser:
             self._load_tailwind()
 
     def _load_tailwind(self):
-        """Generate and inject Tailwind CSS."""
+        """Generate and inject Tailwind CSS as a style element."""
         _tailwind = Tailwind()
         _generated = _tailwind.generate(self.html_content)
         
-        if _generated and "{{generated_tailwind}}" not in self.html_content:
-            self.logger.warning(
-                'Tailwind generated but no "{{generated_tailwind}}" placeholder found in template.'
-            )
+        if not _generated:
+            return
         
-        self.html_content = self.html_content.replace("{{generated_tailwind}}", _generated or "")
+        # Create the style element
+        style_element = f"<style>{_generated}</style>"
+        
+        # Try to inject into <head> if it exists
+        if "</head>" in self.html_content:
+            self.html_content = self.html_content.replace(
+                "</head>", f"{style_element}</head>"
+            )
+        elif "<body>" in self.html_content:
+            # Inject after <body> tag
+            self.html_content = self.html_content.replace(
+                "<body>", f"<body>{style_element}"
+            )
+        else:
+            # Prepend to the beginning of the content
+            self.html_content = style_element + self.html_content
     
     def clear_variables(self):
         """Clear any cached variables (reserved for future use)."""

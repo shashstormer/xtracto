@@ -295,23 +295,12 @@ class TestParserExtended(unittest.TestCase):
             with patch('xtracto.Tailwind') as MockTailwind:
                 MockTailwind.return_value.generate.return_value = "/*tailwind-css*/"
 
-                # Create a parser
-                parser = Parser(content="div")
-                
-                # Set html_content directly with the placeholder (simulating what would happen
-                # if the template contained the literal placeholder text)
-                parser.html_content = "<style>{{generated_tailwind}}</style><div>content</div>"
-                
-                # Call _load_tailwind directly
-                # parser._load_tailwind()
-                
-                # The tailwind should have been called and replaced the placeholder
+                # Create a parser with content that uses Tailwind classes
+                parser = Parser(content="div\n    ;;class=\"bg-red-500\";;")
                 parser.render()
-                print("OUTPUT")
-                print(parser.html_content)
-                print("END OUTPUT")
-                self.assertIn("/*tailwind-css*/", parser.html_content)
-                self.assertNotIn("{{generated_tailwind}}", parser.html_content)
+                
+                # The tailwind CSS should be automatically injected as a style element
+                self.assertIn("<style>/*tailwind-css*/</style>", parser.html_content)
         finally:
             os.chdir(original_cwd)
             shutil.rmtree(test_dir)
