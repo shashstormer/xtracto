@@ -12,7 +12,7 @@ from xtracto import FileManager, Parser, Pypx, Utils, Config
 class TestVulnerabilities(unittest.TestCase):
     def setUp(self):
         # Mock Config to avoid needing actual files
-        self.config_patcher = patch('xtracto.Config')
+        self.config_patcher = patch('xtracto.core.config.Config')
         self.MockConfig = self.config_patcher.start()
         # Setup default config values
         self.MockConfig.return_value.module_root = os.path.abspath("xtractocomponents")
@@ -36,7 +36,7 @@ class TestVulnerabilities(unittest.TestCase):
 
         # Should return empty string and log error
         with patch('xtracto.log') as mock_log:
-            content = FileManager.get_file_if_valid(target)
+            content = FileManager().get_file_if_valid(target)
             self.assertEqual(content, "", "Path traversal should be blocked and return empty string")
             # Verify log was called with TRAVERSAL ATTEMPT (checking args partially)
             # mock_log.critical.assert_called()
@@ -44,17 +44,35 @@ class TestVulnerabilities(unittest.TestCase):
 
     def test_ssti_fix(self):
         # Parser.render with malicious context
-        parser = Parser(content="Hello {{ name }}")
+        # Need to create a xtracto.config.py since Parser now loads Config on init
+        import tempfile
+        import shutil
+        
+        test_dir = tempfile.mkdtemp()
+        original_cwd = os.getcwd()
+        
+        try:
+            os.chdir(test_dir)
+            # Create minimal config
+            with open("xtracto.config.py", "w") as f:
+                f.write("pages_dir = 'pages'\nmodules_dir = 'components'\n")
+            os.makedirs("pages", exist_ok=True)
+            os.makedirs("components", exist_ok=True)
+            
+            parser = Parser(content="Hello {{ name }}")
 
-        # Malicious payload
-        payload = "<script>alert(1)</script>"
-        parser.render(context={"name": payload})
+            # Malicious payload
+            payload = "<script>alert(1)</script>"
+            parser.render(context={"name": payload})
 
-        # Output should be escaped
-        print(f"SSTI Fix Output: {parser.html_content}")
+            # Output should be escaped
+            print(f"SSTI Fix Output: {parser.html_content}")
 
-        self.assertNotIn("<script>", parser.html_content, "SSTI should be mitigated (script tag escaped)")
-        self.assertIn("&lt;script&gt;", parser.html_content, "Output should contain escaped entities")
+            self.assertNotIn("<script>", parser.html_content, "SSTI should be mitigated (script tag escaped)")
+            self.assertIn("&lt;script&gt;", parser.html_content, "Output should contain escaped entities")
+        finally:
+            os.chdir(original_cwd)
+            shutil.rmtree(test_dir)
 
     def test_dos_circular_import_fix(self):
         # Pypx.do_imports with circular dependency
