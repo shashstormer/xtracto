@@ -137,23 +137,30 @@ class Parser:
                 - 'replace' (default): Replace any outer layout with this one
                 - 'stack': Stack layouts (inner layouts wrap content, outer layouts wrap inner)
         In production mode, uses Jinja2 bytecode caching for faster rendering.
+        Tailwind CSS is generated and injected into the template BEFORE Jinja rendering
+        so it can be properly cached in production builds.
         """
         if context is None:
             context = {}
         self.logger.debug("Rendering template", vars=list(context.keys()))
+
+        template_to_render = self.template_string
+
+        if self.config.reparse_tailwind:
+            template_to_render = self._inject_tailwind(template_to_render)
+
         try:
             cache = get_cache(self.config)
-            self.html_content = cache.render_template(self.template_string, context)
+            self.html_content = cache.render_template(template_to_render, context)
         except Exception as e:
             self.logger.error(f"Jinja2 Rendering Error: {e}")
-            self.html_content = self.template_string
-        if self.config.reparse_tailwind:
-            self._load_tailwind()
+            self.html_content = template_to_render
 
-    def _load_tailwind(self):
-        """Generate and inject Tailwind CSS as a style element."""
+    def _inject_tailwind(self, template: str) -> str:
+        """Generate and inject Tailwind CSS into the template string."""
         _tailwind = Tailwind()
-        scan_content = self.html_content
+
+        scan_content = template
         for scan_dir in self.config.tailwind_scan_dirs:
             if os.path.isdir(scan_dir):
                 for root, _, files in os.walk(scan_dir):
@@ -164,20 +171,29 @@ class Parser:
                                     scan_content += f.read()
                             except Exception:
                                 pass
-        _generated = _tailwind.generate(scan_content)
-        if not _generated:
-            return
-        style_element = f"<style>{_generated}</style>"
-        if "</head>" in self.html_content:
-            self.html_content = self.html_content.replace(
-                "</head>", f"{style_element}</head>"
-            )
-        elif "<body>" in self.html_content:
-            self.html_content = self.html_content.replace(
-                "<body>", f"<body>{style_element}"
-            )
+
+        cache = get_cache(self.config)
+        content_hash = cache.content_hash(scan_content)
+
+        cached_css = cache.get_tailwind(content_hash)
+        if cached_css is not None:
+            _generated = cached_css
         else:
-            self.html_content = style_element + self.html_content
+            _generated = _tailwind.generate(scan_content)
+            if _generated:
+                cache.set_tailwind(content_hash, _generated)
+
+        if not _generated:
+            return template
+
+        style_element = f"<style>{_generated}</style>"
+
+        if "</head>" in template:
+            return template.replace("</head>", f"{style_element}</head>")
+        elif "<body>" in template:
+            return template.replace("<body>", f"<body>{style_element}")
+        else:
+            return style_element + template
 
     def clear_variables(self):
         """Clear any cached variables (reserved for future use)."""

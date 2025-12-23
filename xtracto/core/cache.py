@@ -159,14 +159,48 @@ class TemplateCache:
     def clear(self):
         """Clear all caches."""
         self._template_cache.clear()
+        self._tailwind_cache = {}
         self._jinja_env = None
         self.logger.debug("Cache cleared")
 
+    def get_tailwind(self, content_hash: str) -> Optional[str]:
+        """
+        Get cached Tailwind CSS if available.
+        Args:
+            content_hash: Hash of content used for Tailwind generation
+        Returns:
+            Cached CSS string, or None if not cached
+        """
+        if not self.enabled:
+            return None
+        if not hasattr(self, '_tailwind_cache'):
+            self._tailwind_cache = {}
+        cached = self._tailwind_cache.get(content_hash)
+        if cached:
+            self.logger.trace(f"Tailwind cache hit: {content_hash[:8]}...")
+        return cached
+
+    def set_tailwind(self, content_hash: str, css: str):
+        """
+        Cache generated Tailwind CSS.
+        Args:
+            content_hash: Hash of content used for generation
+            css: Generated CSS string
+        """
+        if not self.enabled:
+            return
+        if not hasattr(self, '_tailwind_cache'):
+            self._tailwind_cache = {}
+        self._tailwind_cache[content_hash] = css
+        self.logger.trace(f"Cached Tailwind CSS: {content_hash[:8]}...")
+
     def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics."""
+        tailwind_count = len(getattr(self, '_tailwind_cache', {}))
         return {
             "enabled": self.enabled,
             "template_count": len(self._template_cache),
+            "tailwind_count": tailwind_count,
             "bytecode_cache_dir": self._bytecode_cache_dir,
         }
 
