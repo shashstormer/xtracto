@@ -36,6 +36,7 @@ from pytailwind import Tailwind
 from xtracto.core.config import Config
 from xtracto.core.logging import Log, get_logger, log
 from xtracto.core.errors import Error
+from xtracto.core.cache import get_cache, TemplateCache
 from xtracto.utils import Utils, MAXIMUM_DEPTH_PROJECT_ROOT
 from xtracto.builder import Builder
 from xtracto.components.file_manager import FileManager
@@ -120,12 +121,28 @@ class Parser:
             
             with open(_fpath) as f:
                 self.content = f.read()
+            
+            # Check template cache in production mode
+            self._cache = get_cache(self.config)
+            self._content_hash = self._cache.content_hash(self.content)
+            
+            cached_template = self._cache.get_template(path, self._content_hash)
+            if cached_template is not None:
+                self.template_string = cached_template
+                self.logger.debug(f"Using cached template: {path}")
+                return
         else:
             self.content = content or ""
+            self._cache = get_cache(self.config)
+            self._content_hash = self._cache.content_hash(self.content)
         
         # Parse using new tokenizer/lexer/parser pipeline
         self.pypx_parser = Pypx(self.content, self.raw_origin)
         self._parse(layout)
+        
+        # Cache the parsed template in production mode
+        if self.raw_type == "path" and self.raw_origin:
+            self._cache.set_template(self.raw_origin, self._content_hash, self.template_string)
     
     def _parse(self, layout: bool = False, layout_mode: Optional[str] = None):
         """Parse the pypx content."""
@@ -150,6 +167,8 @@ class Parser:
             layout_mode: Optional layout mode override:
                 - 'replace' (default): Replace any outer layout with this one
                 - 'stack': Stack layouts (inner layouts wrap content, outer layouts wrap inner)
+        
+        In production mode, uses Jinja2 bytecode caching for faster rendering.
         """
         if context is None:
             context = {}
@@ -157,9 +176,9 @@ class Parser:
         self.logger.debug("Rendering template", vars=list(context.keys()))
 
         try:
-            env = Environment(autoescape=True)
-            template = env.from_string(self.template_string)
-            self.html_content = template.render(**context)
+            # Use cached Jinja2 environment in production mode
+            cache = get_cache(self.config)
+            self.html_content = cache.render_template(self.template_string, context)
         except Exception as e:
             self.logger.error(f"Jinja2 Rendering Error: {e}")
             self.html_content = self.template_string
@@ -533,6 +552,10 @@ __all__ = [
     "log",
     "Error",
     "FileManager",
+    
+    # Caching
+    "TemplateCache",
+    "get_cache",
     
     # Constants
     "MAXIMUM_DEPTH_PROJECT_ROOT",

@@ -1,7 +1,7 @@
 """
 Xtracto Core Module
 
-Contains configuration, logging, and error handling infrastructure.
+Contains configuration, logging, error handling, and caching infrastructure.
 """
 
 from xtracto.core.config import Config
@@ -16,6 +16,7 @@ from xtracto.core.errors import (
     ConfigError,
     FileError,
 )
+from xtracto.core.cache import TemplateCache, get_cache, clear_cache
 
 __all__ = [
     "Config",
@@ -30,4 +31,7 @@ __all__ = [
     "PypxImportError",
     "ConfigError",
     "FileError",
+    "TemplateCache",
+    "get_cache",
+    "clear_cache",
 ]
