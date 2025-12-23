@@ -127,9 +127,9 @@ class Parser:
         self.pypx_parser = Pypx(self.content, self.raw_origin)
         self._parse(layout)
     
-    def _parse(self, layout: bool = False):
+    def _parse(self, layout: bool = False, layout_mode: Optional[str] = None):
         """Parse the pypx content."""
-        self.pypx_parser.parse(layout)
+        self.pypx_parser.parse(layout, layout_mode=layout_mode)
         self.pypx_parser.do_imports()
         
         if not self.module:
@@ -137,12 +137,19 @@ class Parser:
         
         self.template_string = self.pypx_parser.parsed
     
-    def render(self, context: Optional[Dict[str, Any]] = None):
+    def render(
+        self,
+        context: Optional[Dict[str, Any]] = None,
+        layout_mode: Optional[str] = None,
+    ):
         """
         Render the template with the given context.
         
         Args:
             context: Dictionary of variables to pass to the template
+            layout_mode: Optional layout mode override:
+                - 'replace' (default): Replace any outer layout with this one
+                - 'stack': Stack layouts (inner layouts wrap content, outer layouts wrap inner)
         """
         if context is None:
             context = {}
@@ -163,7 +170,21 @@ class Parser:
     def _load_tailwind(self):
         """Generate and inject Tailwind CSS as a style element."""
         _tailwind = Tailwind()
-        _generated = _tailwind.generate(self.html_content)
+        
+        # Collect content from configured scan directories
+        scan_content = self.html_content
+        for scan_dir in self.config.tailwind_scan_dirs:
+            if os.path.isdir(scan_dir):
+                for root, _, files in os.walk(scan_dir):
+                    for file in files:
+                        if file.endswith(('.pypx', '.html', '.js', '.jsx', '.ts', '.tsx', '.vue')):
+                            try:
+                                with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
+                                    scan_content += f.read()
+                            except Exception:
+                                pass  # Skip unreadable files
+        
+        _generated = _tailwind.generate(scan_content)
         
         if not _generated:
             return
@@ -259,12 +280,13 @@ class Pypx:
         self.static_requirements: Dict[str, Any] = {}
         self.logger = get_logger("xtracto.pypx")
     
-    def parse(self, layout: bool = False):
+    def parse(self, layout: bool = False, layout_mode: Optional[str] = None):
         """
         Parse the pypx content.
         
         Args:
             layout: If True, skip layout wrapping
+            layout_mode: Layout behavior mode ('replace' or 'stack')
         """
         self.logger.trace("Starting pypx parsing", filename=self.fname)
         
@@ -276,7 +298,7 @@ class Pypx:
         self.convert_variables_to_jinja()
         
         if not layout:
-            self.use_layout()
+            self.use_layout(layout_mode=layout_mode)
         
         self.logger.trace("Pypx parsing complete")
     
@@ -289,23 +311,55 @@ class Pypx:
         
         self.parsed = re.sub(r'\{\{\s*([^=}]+?)\s*=\s*(.*?)\s*\}\}', replace_default, self.parsed)
     
-    def use_layout(self):
-        """Apply layout wrapper if _layout.pypx exists."""
-        _layout_file = os.path.join(str(Config().pages_root), "_layout.pypx")
+    def use_layout(self, layout_mode: Optional[str] = None, _depth: int = 0):
+        """
+        Apply layout wrapper if _layout.pypx exists.
+        
+        Args:
+            layout_mode: Layout behavior mode:
+                - 'replace' (default): Replace any outer layout with this one
+                - 'stack': Stack layouts (inner layouts wrap content, outer layouts wrap inner)
+            _depth: Internal recursion depth counter to prevent infinite loops
+        """
+        if _depth > 10:
+            log.error("Layout nesting too deep (max 10 levels)")
+            return
+        
+        config = Config()
+        if layout_mode is None:
+            layout_mode = config.layout_mode
+        
+        _layout_file = os.path.join(str(config.pages_root), "_layout.pypx")
         if not os.path.exists(_layout_file):
             return
         
-        _self = Parser(path="_layout.pypx", layout=True)
-        layout_tpl = _self.template_string
+        # Parse the layout file (without applying its own layout yet)
+        layout_parser = Parser(path="_layout.pypx", layout=True)
+        layout_tpl = layout_parser.template_string
         
+        # Check for children placeholder
+        has_children = "{{children}}" in layout_tpl or "{children}" in layout_tpl
+        
+        if not has_children:
+            log.warn("Layout file does not contain {{children}} placeholder")
+            return
+        
+        # Apply the layout
         if "{{children}}" in layout_tpl:
             self.parsed = layout_tpl.replace("{{children}}", self.parsed)
-        elif "{children}" in layout_tpl:
-            self.parsed = layout_tpl.replace("{children}", self.parsed)
         else:
-            log.warn("Layout file does not contain {{children}} placeholder")
+            self.parsed = layout_tpl.replace("{children}", self.parsed)
         
-        self.static_requirements.update(_self.static_requirements)
+        self.static_requirements.update(layout_parser.static_requirements)
+        
+        # Check if layout itself has a nested layout reference
+        # Nested layouts use [[_parent_layout.pypx]] or similar patterns
+        if layout_mode == 'stack':
+            # In stack mode, check for parent layout in the layout file itself
+            parent_layout_match = re.search(r'\[\[\s*_parent\.pypx\s*\]\]', layout_tpl)
+            if parent_layout_match:
+                # Recursively apply parent layout
+                self.use_layout(layout_mode=layout_mode, _depth=_depth + 1)
     
     def make_groups_valid(self):
         """Join multiline constructs when delimiters are unbalanced."""

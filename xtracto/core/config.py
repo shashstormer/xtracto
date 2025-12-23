@@ -68,6 +68,8 @@ class Config:
         strip_imports: Whether to strip import statements from output
         app_start_path: Starting path for the application
         reparse_tailwind: Whether to regenerate Tailwind CSS on render
+        tailwind_scan_dirs: List of directories to scan for Tailwind classes
+        layout_mode: Default layout behavior ('replace' or 'stack')
         raise_value_errors_while_importing: Raise errors during component imports
     """
     
@@ -81,6 +83,8 @@ class Config:
     strip_imports: bool = field(default=True)
     app_start_path: str = field(default="/")
     reparse_tailwind: bool = field(default=False)
+    tailwind_scan_dirs: list = field(default_factory=list)
+    layout_mode: str = field(default="replace")  # 'replace' or 'stack'
     raise_value_errors_while_importing: bool = field(default=True)
     
     def __init__(self, project_root: Optional[str] = None):
@@ -121,6 +125,21 @@ class Config:
                 self.strip_imports = getattr(config_module, 'strip_imports', True)
                 self.app_start_path = getattr(config_module, 'app_start_path', "/")
                 self.reparse_tailwind = getattr(config_module, 'reparse_tailwind', False)
+                
+                # Tailwind scan directories - default to pages and modules dirs
+                default_tailwind_dirs = [self.pages_root, self.module_root]
+                self.tailwind_scan_dirs = getattr(
+                    config_module, 'tailwind_scan_dirs', default_tailwind_dirs
+                )
+                # Resolve relative paths
+                self.tailwind_scan_dirs = [
+                    _root_path(d, self.project_root) if not os.path.isabs(d) else d
+                    for d in self.tailwind_scan_dirs
+                ]
+                
+                # Layout mode: 'replace' (default) or 'stack'
+                self.layout_mode = getattr(config_module, 'layout_mode', 'replace')
+                
                 self.raise_value_errors_while_importing = getattr(
                     config_module, 'raise_value_errors_while_importing', True
                 )
@@ -144,6 +163,8 @@ class Config:
             self.strip_imports = True
             self.app_start_path = "/"
             self.reparse_tailwind = False
+            self.tailwind_scan_dirs = [self.pages_root, self.module_root]
+            self.layout_mode = "replace"
             self.raise_value_errors_while_importing = True
     
     def layout_exists(self) -> bool:

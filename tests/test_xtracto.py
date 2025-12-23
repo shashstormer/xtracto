@@ -298,7 +298,6 @@ class TestParserExtended(unittest.TestCase):
                 # Create a parser with content that uses Tailwind classes
                 parser = Parser(content="div\n    ;;class=\"bg-red-500\";;")
                 parser.render()
-                
                 # The tailwind CSS should be automatically injected as a style element
                 self.assertIn("<style>/*tailwind-css*/</style>", parser.html_content)
         finally:
