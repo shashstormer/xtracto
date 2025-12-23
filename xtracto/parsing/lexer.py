@@ -1,17 +1,13 @@
 """
 Lexer for pypx
-
 Processes the raw token stream from the tokenizer:
 - Removes comments (:: ... ::)
 - Groups multiline constructs when delimiters span lines
 - Generates DEDENT tokens from indentation changes
 - Filters insignificant whitespace
 """
-
 from __future__ import annotations
-
 from typing import List, Optional, Tuple
-
 from xtracto.core.logging import get_logger
 from xtracto.core.errors import LexerError, SourceLocation
 from xtracto.parsing.tokens import Token, TokenType
@@ -20,37 +16,32 @@ from xtracto.parsing.tokens import Token, TokenType
 class Lexer:
     """
     Lexer for pypx token streams.
-    
     Processes tokens from the tokenizer to handle:
     - Comment removal
     - Multiline delimiter grouping
     - Indent/dedent tracking
     - Token filtering
-    
     Usage:
         lexer = Lexer(tokens, source_text)
         processed_tokens = lexer.process()
     """
-    
-    # Matching delimiter pairs
     DELIMITER_PAIRS = {
-        TokenType.COMMENT_START: TokenType.COMMENT_START,  # :: is both start and end
+        TokenType.COMMENT_START: TokenType.COMMENT_START,
         TokenType.VAR_START: TokenType.VAR_END,
-        TokenType.ATTR_START: TokenType.ATTR_START,  # ;; is both start and end
+        TokenType.ATTR_START: TokenType.ATTR_START,
         TokenType.IMPORT_START: TokenType.IMPORT_END,
         TokenType.JINJA_BLOCK_START: TokenType.JINJA_BLOCK_END,
         TokenType.JINJA_COMMENT_START: TokenType.JINJA_COMMENT_END,
     }
-    
+
     def __init__(
-        self,
-        tokens: List[Token],
-        source: Optional[str] = None,
-        filename: Optional[str] = None,
+            self,
+            tokens: List[Token],
+            source: Optional[str] = None,
+            filename: Optional[str] = None,
     ):
         """
         Initialize the lexer.
-        
         Args:
             tokens: Token list from the tokenizer
             source: Original source text (for error context)
@@ -61,68 +52,60 @@ class Lexer:
         self.filename = filename
         self.pos = 0
         self.output: List[Token] = []
-        self.indent_stack: List[int] = [0]  # Stack of indent levels
+        self.indent_stack: List[int] = [0]
         self.logger = get_logger("xtracto.lexer")
-    
+
     def process(self) -> List[Token]:
         """
         Process the token stream.
-        
         Returns:
-            Processed token list with comments removed, multiline 
+            Processed token list with comments removed, multiline
             constructs grouped, etc.
-        
         Raises:
             LexerError: If processing fails
         """
         self.logger.trace("Starting lexical analysis", token_count=len(self.tokens))
-        
         while not self._at_end():
             self._process_token()
-        
-        # Emit final DEDENTs to close all open indentation levels
         while len(self.indent_stack) > 1:
             self.indent_stack.pop()
             self._emit_synthetic(TokenType.DEDENT, "")
-        
         self.logger.trace(
             "Lexical analysis complete",
             output_count=len(self.output),
         )
-        
         return self.output
-    
+
     def _at_end(self) -> bool:
         """Check if we've processed all tokens."""
         return self.pos >= len(self.tokens)
-    
+
     def _current(self) -> Token:
         """Get the current token."""
         if self._at_end():
-            return self.tokens[-1]  # Return EOF
+            return self.tokens[-1]
         return self.tokens[self.pos]
-    
+
     def _peek(self, offset: int = 0) -> Optional[Token]:
         """Look ahead at a token without consuming it."""
         pos = self.pos + offset
         if pos >= len(self.tokens):
             return None
         return self.tokens[pos]
-    
+
     def _advance(self) -> Token:
         """Consume and return the current token."""
         token = self._current()
         self.pos += 1
         return token
-    
+
     def _emit(self, token: Token):
         """Emit a token to the output."""
         self.output.append(token)
         self.logger.lex("EMIT", token_type=token.type.name, value=token.value[:30])
-    
+
     def _emit_synthetic(self, token_type: TokenType, value: str):
         """Emit a synthetic token (not from source)."""
-        # Use location of current token if available
         current = self._current() if not self._at_end() else self.tokens[-1]
         token = Token(
             type=token_type,
@@ -133,11 +116,10 @@ class Lexer:
         )
         self.output.append(token)
         self.logger.lex("EMIT_SYNTHETIC", token_type=token_type.name)
-    
+
     def _process_token(self):
         """Process the current token."""
         token = self._current()
-        
         if token.type == TokenType.COMMENT_START:
             self._skip_comment()
         elif token.type == TokenType.VAR_START:
@@ -158,30 +140,26 @@ class Lexer:
             self._emit(self._advance())
         else:
             self._emit(self._advance())
-    
+
     def _skip_comment(self):
         """Skip a comment block (:: ... ::)."""
-        start_token = self._advance()  # Consume COMMENT_START
+        start_token = self._advance()
         self.logger.lex("SKIP_COMMENT_START", line=start_token.line)
-        
         depth = 1
         while not self._at_end() and depth > 0:
             token = self._advance()
             if token.type == TokenType.COMMENT_START:
-                # :: acts as both start and end, so this is the end
                 depth -= 1
-        
         self.logger.lex("SKIP_COMMENT_END", line=self._current().line if not self._at_end() else -1)
-    
+
     def _group_variable(self):
         """Group a variable construct ({{ ... }})."""
-        start_token = self._advance()  # Consume VAR_START
+        start_token = self._advance()
         content_parts: List[str] = []
-        
         while not self._at_end():
             token = self._current()
             if token.type == TokenType.VAR_END:
-                self._advance()  # Consume VAR_END
+                self._advance()
                 break
             elif token.type == TokenType.EOF:
                 raise LexerError(
@@ -196,8 +174,6 @@ class Lexer:
             else:
                 content_parts.append(token.value)
                 self._advance()
-        
-        # Emit grouped variable token
         content = "".join(content_parts).strip()
         grouped_token = Token(
             type=TokenType.VAR_CONTENT,
@@ -207,16 +183,15 @@ class Lexer:
             source_file=self.filename,
         )
         self._emit(grouped_token)
-    
+
     def _group_attribute(self):
         """Group an attribute construct (;; ... ;;)."""
-        start_token = self._advance()  # Consume ATTR_START
+        start_token = self._advance()
         content_parts: List[str] = []
-        
         while not self._at_end():
             token = self._current()
-            if token.type == TokenType.ATTR_START:  # ;; is both start and end
-                self._advance()  # Consume ATTR_END
+            if token.type == TokenType.ATTR_START:
+                self._advance()
                 break
             elif token.type == TokenType.EOF:
                 raise LexerError(
@@ -231,8 +206,6 @@ class Lexer:
             else:
                 content_parts.append(token.value)
                 self._advance()
-        
-        # Emit grouped attribute token
         content = "".join(content_parts).strip()
         grouped_token = Token(
             type=TokenType.ATTR_CONTENT,
@@ -242,23 +215,22 @@ class Lexer:
             source_file=self.filename,
         )
         self._emit(grouped_token)
-    
+
     def _group_import(self):
         """Group an import construct ([[ ... ]])."""
-        start_token = self._advance()  # Consume IMPORT_START
+        start_token = self._advance()
         content_parts: List[str] = []
         has_params = False
         path_parts: List[str] = []
         param_parts: List[str] = []
-        
         while not self._at_end():
             token = self._current()
             if token.type == TokenType.IMPORT_END:
-                self._advance()  # Consume IMPORT_END
+                self._advance()
                 break
             elif token.type == TokenType.IMPORT_PARAMS:
                 has_params = True
-                self._advance()  # Consume ||
+                self._advance()
             elif token.type == TokenType.EOF:
                 raise LexerError(
                     "Unclosed import block",
@@ -275,12 +247,9 @@ class Lexer:
                 else:
                     path_parts.append(token.value)
                 self._advance()
-        
-        # Emit grouped import token
         path = "".join(path_parts).strip()
         params = "".join(param_parts).strip() if has_params else ""
         content = f"{path}||{params}" if has_params else path
-        
         grouped_token = Token(
             type=TokenType.IMPORT_CONTENT,
             value=content,
@@ -289,17 +258,16 @@ class Lexer:
             source_file=self.filename,
         )
         self._emit(grouped_token)
-    
+
     def _group_jinja_block(self):
         """Group a Jinja2 block ({% ... %})."""
-        start_token = self._advance()  # Consume JINJA_BLOCK_START
+        start_token = self._advance()
         content_parts: List[str] = ["{%"]
-        
         while not self._at_end():
             token = self._current()
             if token.type == TokenType.JINJA_BLOCK_END:
                 content_parts.append("%}")
-                self._advance()  # Consume JINJA_BLOCK_END
+                self._advance()
                 break
             elif token.type == TokenType.EOF:
                 raise LexerError(
@@ -314,8 +282,6 @@ class Lexer:
             else:
                 content_parts.append(token.value)
                 self._advance()
-        
-        # Emit grouped Jinja block token
         content = "".join(content_parts)
         grouped_token = Token(
             type=TokenType.JINJA_BLOCK,
@@ -325,15 +291,14 @@ class Lexer:
             source_file=self.filename,
         )
         self._emit(grouped_token)
-    
+
     def _skip_jinja_comment(self):
         """Skip a Jinja2 comment ({# ... #})."""
-        start_token = self._advance()  # Consume JINJA_COMMENT_START
-        
+        start_token = self._advance()
         while not self._at_end():
             token = self._current()
             if token.type == TokenType.JINJA_COMMENT_END:
-                self._advance()  # Consume JINJA_COMMENT_END
+                self._advance()
                 break
             elif token.type == TokenType.EOF:
                 raise LexerError(
@@ -347,30 +312,24 @@ class Lexer:
                 )
             else:
                 self._advance()
-    
+
     def _handle_newline(self):
         """Handle a newline token."""
         self._emit(self._advance())
-    
+
     def _handle_indent(self):
         """Handle indentation and emit INDENT/DEDENT tokens."""
         token = self._advance()
         current_indent = len(token.value)
         prev_indent = self.indent_stack[-1]
-        
         if current_indent > prev_indent:
-            # Increased indentation
             self.indent_stack.append(current_indent)
             self._emit(token)
         elif current_indent < prev_indent:
-            # Decreased indentation - emit DEDENT tokens
             while len(self.indent_stack) > 1 and self.indent_stack[-1] > current_indent:
                 self.indent_stack.pop()
                 self._emit_synthetic(TokenType.DEDENT, "")
-            
-            # If there's still indentation, emit it
             if current_indent > 0:
                 self._emit(token)
         else:
-            # Same indentation - emit the token
             self._emit(token)

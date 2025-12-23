@@ -47,10 +47,10 @@ class TestVulnerabilities(unittest.TestCase):
         # Need to create a xtracto.config.py since Parser now loads Config on init
         import tempfile
         import shutil
-        
+
         test_dir = tempfile.mkdtemp()
         original_cwd = os.getcwd()
-        
+
         try:
             os.chdir(test_dir)
             # Create minimal config
@@ -58,7 +58,7 @@ class TestVulnerabilities(unittest.TestCase):
                 f.write("pages_dir = 'pages'\nmodules_dir = 'components'\n")
             os.makedirs("pages", exist_ok=True)
             os.makedirs("components", exist_ok=True)
-            
+
             parser = Parser(content="Hello {{ name }}")
 
             # Malicious payload
@@ -118,21 +118,22 @@ class TestVulnerabilities(unittest.TestCase):
                 Utils.get_project_root()
 
     def test_fragile_parsing_fix(self):
-        # Unbalanced groups at EOF
+        # Unbalanced groups at EOF - now raises LexerError during parse()
+        from xtracto.core.errors import LexerError
         content = "{{ start"
         pypx = Pypx(content=content)
-        with self.assertRaises(SyntaxError):
-            pypx.make_groups_valid()
+        with self.assertRaises(LexerError):
+            pypx.parse()
 
     def test_indentation_fix(self):
         # Test expandtabs
         content = "    Space\n\tTab"
         pypx = Pypx(content=content)
-        # Check content in pypx.content
+        # Check content in pypx._content_lines (list of lines)
         # Tab should be expanded to 4 spaces
         # "    Space" -> "    Space"
         # "\tTab" -> "    Tab"
-        self.assertEqual(pypx.content[1], "    Tab", "Tabs should be expanded to 4 spaces")
+        self.assertEqual(pypx._content_lines[1], "    Tab", "Tabs should be expanded to 4 spaces")
 
 
 if __name__ == '__main__':

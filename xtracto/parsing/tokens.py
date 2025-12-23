@@ -1,11 +1,8 @@
 """
 Token Definitions for pypx
-
 Defines token types and the Token data structure used throughout the parsing pipeline.
 """
-
 from __future__ import annotations
-
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Optional
@@ -13,45 +10,35 @@ from typing import Optional
 
 class TokenType(Enum):
     """Token types for the pypx language."""
-    
-    # Structure tokens
-    INDENT = auto()          # Indentation (leading whitespace)
-    NEWLINE = auto()         # Line break
-    DEDENT = auto()          # Decrease in indentation (synthetic)
-    EOF = auto()             # End of file
-    
-    # Identifiers & Text
-    IDENTIFIER = auto()      # Element name (div, span, html, etc.)
-    TEXT = auto()            # Plain text content
-    
-    # Delimiter pairs
-    COMMENT_START = auto()   # ::
-    COMMENT_END = auto()     # ::
-    COMMENT = auto()         # Complete comment content (after lexing)
-    ATTR_START = auto()      # ;;
-    ATTR_END = auto()        # ;;
-    ATTR_CONTENT = auto()    # Attribute content between ;;...;;
-    VAR_START = auto()       # {{
-    VAR_END = auto()         # }}
-    VAR_CONTENT = auto()     # Variable content between {{...}}
-    IMPORT_START = auto()    # [[
-    IMPORT_END = auto()      # ]]
-    IMPORT_PARAMS = auto()   # ||
-    IMPORT_CONTENT = auto()  # Import path content
-    
-    # Jinja2 passthrough
-    JINJA_BLOCK_START = auto()   # {%
-    JINJA_BLOCK_END = auto()     # %}
-    JINJA_BLOCK = auto()         # Complete {% ... %} block
-    JINJA_COMMENT_START = auto() # {#
-    JINJA_COMMENT_END = auto()   # #}
-    JINJA_COMMENT = auto()       # Complete {# ... #} comment
-    
-    # Special
-    EQUALS = auto()          # = (for default values in variables)
-    WHITESPACE = auto()      # Non-significant whitespace (usually filtered)
-    LINE_CONTINUATION = auto()  # Internal marker for multiline grouping
-    
+    INDENT = auto()
+    NEWLINE = auto()
+    DEDENT = auto()
+    EOF = auto()
+    IDENTIFIER = auto()
+    TEXT = auto()
+    COMMENT_START = auto()
+    COMMENT_END = auto()
+    COMMENT = auto()
+    ATTR_START = auto()
+    ATTR_END = auto()
+    ATTR_CONTENT = auto()
+    VAR_START = auto()
+    VAR_END = auto()
+    VAR_CONTENT = auto()
+    IMPORT_START = auto()
+    IMPORT_END = auto()
+    IMPORT_PARAMS = auto()
+    IMPORT_CONTENT = auto()
+    JINJA_BLOCK_START = auto()
+    JINJA_BLOCK_END = auto()
+    JINJA_BLOCK = auto()
+    JINJA_COMMENT_START = auto()
+    JINJA_COMMENT_END = auto()
+    JINJA_COMMENT = auto()
+    EQUALS = auto()
+    WHITESPACE = auto()
+    LINE_CONTINUATION = auto()
+
     def __repr__(self) -> str:
         return self.name
 
@@ -60,7 +47,6 @@ class TokenType(Enum):
 class Token:
     """
     Represents a single token from the pypx source.
-    
     Attributes:
         type: The type of token
         value: The string content of the token
@@ -68,40 +54,39 @@ class Token:
         column: 1-indexed column number in source
         source_file: Optional filename for error reporting
     """
-    
     type: TokenType
     value: str
     line: int
     column: int
     source_file: Optional[str] = None
-    
+
     def __repr__(self) -> str:
         value_repr = self.value
         if len(value_repr) > 20:
             value_repr = value_repr[:17] + "..."
         value_repr = value_repr.replace("\n", "\\n").replace("\t", "\\t")
         return f"Token({self.type.name}, {value_repr!r}, L{self.line}:C{self.column})"
-    
+
     def __eq__(self, other) -> bool:
         if isinstance(other, Token):
             return (
-                self.type == other.type
-                and self.value == other.value
-                and self.line == other.line
-                and self.column == other.column
+                    self.type == other.type
+                    and self.value == other.value
+                    and self.line == other.line
+                    and self.column == other.column
             )
         return False
-    
+
     def __hash__(self) -> int:
         return hash((self.type, self.value, self.line, self.column))
-    
+
     @property
     def location(self) -> str:
         """Get a formatted location string."""
         if self.source_file:
             return f"{self.source_file}:{self.line}:{self.column}"
         return f"L{self.line}:C{self.column}"
-    
+
     def is_delimiter(self) -> bool:
         """Check if this token is a delimiter type."""
         return self.type in {

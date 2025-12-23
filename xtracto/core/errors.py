@@ -1,11 +1,8 @@
 """
 Xtracto Error Definitions
-
 Custom exception classes with source location information for precise error reporting.
 """
-
 from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Optional
 
@@ -13,17 +10,16 @@ from typing import Optional
 @dataclass
 class SourceLocation:
     """Represents a location in source code for error reporting."""
-    
     line: int
     column: int
     filename: Optional[str] = None
     source_line: Optional[str] = None
-    
+
     def __str__(self) -> str:
         if self.filename:
             return f"{self.filename}:{self.line}:{self.column}"
         return f"line {self.line}, column {self.column}"
-    
+
     def format_context(self, context_lines: int = 1) -> str:
         """Format the source location with context for error display."""
         parts = [str(self)]
@@ -35,18 +31,18 @@ class SourceLocation:
 
 class XtractoError(Exception):
     """Base exception for all xtracto errors."""
-    
+
     def __init__(
-        self,
-        message: str,
-        location: Optional[SourceLocation] = None,
-        hint: Optional[str] = None,
+            self,
+            message: str,
+            location: Optional[SourceLocation] = None,
+            hint: Optional[str] = None,
     ):
         self.message = message
         self.location = location
         self.hint = hint
         super().__init__(self._format_message())
-    
+
     def _format_message(self) -> str:
         parts = []
         if self.location:
@@ -74,14 +70,14 @@ class LexerError(XtractoError):
 
 class SyntaxError(XtractoError):
     """Syntax error in pypx source."""
-    
+
     def __init__(
-        self,
-        message: str,
-        location: Optional[SourceLocation] = None,
-        hint: Optional[str] = None,
-        expected: Optional[str] = None,
-        found: Optional[str] = None,
+            self,
+            message: str,
+            location: Optional[SourceLocation] = None,
+            hint: Optional[str] = None,
+            expected: Optional[str] = None,
+            found: Optional[str] = None,
     ):
         self.expected = expected
         self.found = found
@@ -92,13 +88,13 @@ class SyntaxError(XtractoError):
 
 class ImportError(XtractoError):
     """Error during component import resolution."""
-    
+
     def __init__(
-        self,
-        message: str,
-        import_path: Optional[str] = None,
-        location: Optional[SourceLocation] = None,
-        hint: Optional[str] = None,
+            self,
+            message: str,
+            import_path: Optional[str] = None,
+            location: Optional[SourceLocation] = None,
+            hint: Optional[str] = None,
     ):
         self.import_path = import_path
         super().__init__(message, location, hint)
@@ -111,13 +107,13 @@ class ConfigError(XtractoError):
 
 class FileError(XtractoError):
     """Error in file operations."""
-    
+
     def __init__(
-        self,
-        message: str,
-        file_path: Optional[str] = None,
-        location: Optional[SourceLocation] = None,
-        hint: Optional[str] = None,
+            self,
+            message: str,
+            file_path: Optional[str] = None,
+            location: Optional[SourceLocation] = None,
+            hint: Optional[str] = None,
     ):
         self.file_path = file_path
         super().__init__(message, location, hint)
@@ -125,12 +121,12 @@ class FileError(XtractoError):
 
 class CircularImportError(ImportError):
     """Circular dependency detected in imports."""
-    
+
     def __init__(
-        self,
-        message: str,
-        import_chain: Optional[list[str]] = None,
-        location: Optional[SourceLocation] = None,
+            self,
+            message: str,
+            import_chain: Optional[list[str]] = None,
+            location: Optional[SourceLocation] = None,
     ):
         self.import_chain = import_chain or []
         hint = None
@@ -141,7 +137,7 @@ class CircularImportError(ImportError):
 
 class PathTraversalError(FileError):
     """Path traversal attempt detected."""
-    
+
     def __init__(self, attempted_path: str, allowed_root: str):
         super().__init__(
             f"Path traversal attempt blocked",
@@ -150,15 +146,14 @@ class PathTraversalError(FileError):
         )
 
 
-# Legacy error compatibility
 class Error:
     """Legacy Error namespace for backward compatibility."""
-    
+
     class ProjectConfig:
         message = "Project Config file not found (xtracto.config.py)"
         error = FileNotFoundError(message)
         resolution = "RESOLUTION: Create file 'xtracto.config.py' at your project root directory"
-    
+
     class LineInsertError:
         class InvalidLineNumber:
             message = "Invalid line number. Please provide a valid line number."

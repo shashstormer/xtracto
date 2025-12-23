@@ -1,9 +1,7 @@
 """
 Xtracto Core Module
-
 Contains configuration, logging, error handling, and caching infrastructure.
 """
-
 from xtracto.core.config import Config
 from xtracto.core.logging import XtractoLogger, get_logger, log
 from xtracto.core.errors import (

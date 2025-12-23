@@ -1,19 +1,14 @@
 """
 Caching module for xtracto.
-
 Provides template caching and Jinja2 bytecode caching for production mode.
 """
-
 from __future__ import annotations
-
 import os
 import hashlib
 import pickle
 from typing import Dict, Any, Optional, TYPE_CHECKING
 from functools import lru_cache
-
 from jinja2 import Environment, FileSystemBytecodeCache
-
 from xtracto.core.logging import get_logger
 
 if TYPE_CHECKING:
@@ -23,56 +18,44 @@ if TYPE_CHECKING:
 class TemplateCache:
     """
     Cache for parsed pypx templates.
-    
     In production mode, caches:
     - Parsed template strings (HTML output from pypx parsing)
     - Jinja2 compiled templates with bytecode caching
-    
     Usage:
         cache = TemplateCache(config)
-        
         # Check if cached
         cached = cache.get_template("index.pypx", content_hash)
         if cached:
             return cached
-        
         # Parse and cache
         parsed = parse_pypx(content)
         cache.set_template("index.pypx", content_hash, parsed)
     """
-    
     _instance: Optional["TemplateCache"] = None
     _initialized: bool = False
-    
+
     def __new__(cls, config: "Config" = None):
         """Singleton pattern for global cache."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
-    
+
     def __init__(self, config: "Config" = None):
         """
         Initialize the template cache.
-        
         Args:
             config: Optional Config instance
         """
         if self._initialized:
             return
-        
         self._initialized = True
         self._config = config
         self.logger = get_logger("xtracto.cache")
-        
-        # Template cache: path -> (content_hash, parsed_template)
         self._template_cache: Dict[str, tuple] = {}
-        
-        # Jinja2 environment with bytecode caching
         self._jinja_env: Optional[Environment] = None
         self._bytecode_cache_dir: Optional[str] = None
-        
         self.logger.debug("Template cache initialized")
-    
+
     @property
     def config(self) -> "Config":
         """Lazy-load config if not provided."""
@@ -80,12 +63,12 @@ class TemplateCache:
             from xtracto.core.config import Config
             self._config = Config()
         return self._config
-    
+
     @property
     def enabled(self) -> bool:
         """Check if caching is enabled (production mode)."""
         return self.config.production
-    
+
     @property
     def bytecode_cache_dir(self) -> str:
         """Get the bytecode cache directory."""
@@ -95,12 +78,11 @@ class TemplateCache:
             )
             os.makedirs(self._bytecode_cache_dir, exist_ok=True)
         return self._bytecode_cache_dir
-    
+
     @property
     def jinja_env(self) -> Environment:
         """
         Get Jinja2 environment with bytecode caching.
-        
         In production mode, uses FileSystemBytecodeCache for
         compiled template bytecode persistence.
         """
@@ -113,7 +95,7 @@ class TemplateCache:
                 self._jinja_env = Environment(
                     autoescape=True,
                     bytecode_cache=bytecode_cache,
-                    auto_reload=False,  # Don't check for changes in production
+                    auto_reload=False,
                 )
                 self.logger.debug(
                     f"Jinja2 bytecode caching enabled: {self.bytecode_cache_dir}"
@@ -121,42 +103,36 @@ class TemplateCache:
             else:
                 self._jinja_env = Environment(autoescape=True)
         return self._jinja_env
-    
+
     @staticmethod
     def content_hash(content: str) -> str:
         """Generate a hash for content to detect changes."""
         return hashlib.md5(content.encode('utf-8')).hexdigest()
-    
+
     def get_template(self, path: str, content_hash: str) -> Optional[str]:
         """
         Get cached template if available and hash matches.
-        
         Args:
             path: Template file path
             content_hash: Hash of current content
-        
         Returns:
             Cached parsed template string, or None if not cached/stale
         """
         if not self.enabled:
             return None
-        
         cached = self._template_cache.get(path)
         if cached is None:
             return None
-        
         cached_hash, cached_template = cached
         if cached_hash != content_hash:
             self.logger.trace(f"Cache miss (hash mismatch): {path}")
             return None
-        
         self.logger.trace(f"Cache hit: {path}")
         return cached_template
-    
+
     def set_template(self, path: str, content_hash: str, parsed: str):
         """
         Cache a parsed template.
-        
         Args:
             path: Template file path
             content_hash: Hash of the content
@@ -164,32 +140,28 @@ class TemplateCache:
         """
         if not self.enabled:
             return
-        
         self._template_cache[path] = (content_hash, parsed)
         self.logger.trace(f"Cached template: {path}")
-    
+
     def render_template(self, template_string: str, context: Dict[str, Any]) -> str:
         """
         Render a Jinja2 template with caching.
-        
         In production mode, the compiled template is cached as bytecode.
-        
         Args:
             template_string: Jinja2 template string
             context: Template context variables
-        
         Returns:
             Rendered HTML string
         """
         template = self.jinja_env.from_string(template_string)
         return template.render(**context)
-    
+
     def clear(self):
         """Clear all caches."""
         self._template_cache.clear()
         self._jinja_env = None
         self.logger.debug("Cache cleared")
-    
+
     def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics."""
         return {
@@ -199,17 +171,14 @@ class TemplateCache:
         }
 
 
-# Global cache instance
 _cache: Optional[TemplateCache] = None
 
 
 def get_cache(config: "Config" = None) -> TemplateCache:
     """
     Get the global template cache instance.
-    
     Args:
         config: Optional Config instance
-    
     Returns:
         TemplateCache singleton instance
     """
@@ -230,13 +199,10 @@ def clear_cache():
 def hash_file(path: str, mtime: float) -> str:
     """
     Get content hash for a file.
-    
     Uses mtime as part of cache key to invalidate on file changes.
-    
     Args:
         path: Absolute path to file
         mtime: File modification time
-    
     Returns:
         MD5 hash of file content
     """

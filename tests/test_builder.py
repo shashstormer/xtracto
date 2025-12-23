@@ -27,16 +27,20 @@ class TestBuilder(unittest.TestCase):
         self.config = TestConfig(self.test_dir)
         self.original_cwd = os.getcwd()
         os.chdir(self.test_dir)
+
     def tearDown(self):
         os.chdir(self.original_cwd)
         if os.path.exists(self.test_dir):
             shutil.rmtree(self.test_dir)
+
     def create_page(self, filename, content):
         with open(os.path.join(self.config.pages_dir, filename), "w") as f:
             f.write(content)
+
     def create_component(self, filename, content):
         with open(os.path.join(self.config.modules_dir, filename), "w") as f:
             f.write(content)
+
     def test_build_basic(self):
         self.create_page("index.pypx", "h1\n    Hello")
         builder = Builder()
@@ -45,7 +49,8 @@ class TestBuilder(unittest.TestCase):
         self.assertTrue(os.path.exists(build_path))
         with open(build_path) as f:
             content = f.read()
-        self.assertIn("<h1>Hello\n</h1>", content)
+        self.assertIn("<h1>Hello</h1>", content)
+
     def test_build_with_import(self):
         self.create_page("page.pypx", "div\n    [[comp.pypx]]")
         self.create_component("comp.pypx", "span\n    Comp")
@@ -54,13 +59,14 @@ class TestBuilder(unittest.TestCase):
         with open(os.path.join(self.config.build_dir, "page.html")) as f:
             content = f.read()
         self.assertIn("<div><span>Comp</span></div>", content.replace("\n", ""))
+
     def test_production_mode_loading(self):
         self.create_page("prod.pypx", "p\n    Source")
         os.makedirs(self.config.build_dir, exist_ok=True)
         with open(os.path.join(self.config.build_dir, "prod.html"), "w") as f:
             f.write("<p>Built Content</p>")
-        os.environ["env"] = "prod"  
-        os.environ["env"] = "dev"  
+        os.environ["env"] = "prod"
+        os.environ["env"] = "dev"
         with open(os.path.join(self.test_dir, "xtracto.config.py"), "a") as f:
             f.write("production = True\n")
         parser = Parser(path="prod.pypx")

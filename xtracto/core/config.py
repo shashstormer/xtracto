@@ -1,17 +1,12 @@
 """
 Xtracto Configuration
-
 Handles loading and managing project configuration from xtracto.config.py.
 """
-
 from __future__ import annotations
-
 import os
 from dataclasses import dataclass, field
 from typing import Any, Optional
-
 from xtracto.core.errors import ConfigError
-
 
 MAXIMUM_DEPTH_PROJECT_ROOT = 10
 
@@ -19,7 +14,6 @@ MAXIMUM_DEPTH_PROJECT_ROOT = 10
 def _get_project_root() -> str:
     """
     Find the project root directory by looking for xtracto.config.py.
-    
     Only checks the current working directory (no upward traversal for security).
     """
     current_script = os.getcwd()
@@ -54,9 +48,7 @@ def _root_path(path: str, project_root: str) -> str:
 class Config:
     """
     Configuration container for xtracto.
-    
     Loads settings from xtracto.config.py or uses defaults.
-    
     Attributes:
         project_root: Absolute path to project root directory
         module_root: Directory containing reusable components
@@ -72,7 +64,6 @@ class Config:
         layout_mode: Default layout behavior ('replace' or 'stack')
         raise_value_errors_while_importing: Raise errors during component imports
     """
-    
     project_root: str = field(default="")
     module_root: str = field(default="")
     pages_root: str = field(default="")
@@ -84,13 +75,12 @@ class Config:
     app_start_path: str = field(default="/")
     reparse_tailwind: bool = field(default=False)
     tailwind_scan_dirs: list = field(default_factory=list)
-    layout_mode: str = field(default="replace")  # 'replace' or 'stack'
+    layout_mode: str = field(default="replace")
     raise_value_errors_while_importing: bool = field(default=True)
-    
+
     def __init__(self, project_root: Optional[str] = None):
         """
         Initialize configuration.
-        
         Args:
             project_root: Optional explicit project root. If None, will be
                          auto-detected by looking for xtracto.config.py.
@@ -125,26 +115,19 @@ class Config:
                 self.strip_imports = getattr(config_module, 'strip_imports', True)
                 self.app_start_path = getattr(config_module, 'app_start_path', "/")
                 self.reparse_tailwind = getattr(config_module, 'reparse_tailwind', False)
-                
-                # Tailwind scan directories - default to pages and modules dirs
                 default_tailwind_dirs = [self.pages_root, self.module_root]
                 self.tailwind_scan_dirs = getattr(
                     config_module, 'tailwind_scan_dirs', default_tailwind_dirs
                 )
-                # Resolve relative paths
                 self.tailwind_scan_dirs = [
                     _root_path(d, self.project_root) if not os.path.isabs(d) else d
                     for d in self.tailwind_scan_dirs
                 ]
-                
-                # Layout mode: 'replace' (default) or 'stack'
                 self.layout_mode = getattr(config_module, 'layout_mode', 'replace')
-                
                 self.raise_value_errors_while_importing = getattr(
                     config_module, 'raise_value_errors_while_importing', True
                 )
             except ConfigError:
-                # Re-raise config errors
                 raise
             except Exception as e:
                 raise ConfigError(
@@ -152,7 +135,6 @@ class Config:
                     hint="Check your xtracto.config.py for syntax errors",
                 )
         else:
-            # Explicit project root provided (used for testing/embedding)
             self.project_root = project_root
             self.module_root = os.getcwd()
             self.pages_root = os.getcwd()
@@ -166,11 +148,11 @@ class Config:
             self.tailwind_scan_dirs = [self.pages_root, self.module_root]
             self.layout_mode = "replace"
             self.raise_value_errors_while_importing = True
-    
+
     def layout_exists(self) -> bool:
         """Check if a layout file exists in the pages directory."""
         return os.path.exists(os.path.join(self.pages_root, "_layout.pypx"))
-    
+
     def page_exists(self, page: str) -> bool:
         """Check if a page file exists."""
         return os.path.exists(os.path.join(self.pages_root, page))
